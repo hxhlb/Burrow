@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var historyWC: NSWindowController?
     private var cleanupWC: NSWindowController?
     private var settingsWC: NSWindowController?
+    private var diskMapWC: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
@@ -141,6 +142,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let wc = NSWindowController(window: window)
         self.cleanupWC = wc
+        wc.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func openDiskMap() {
+        if let wc = self.diskMapWC {
+            wc.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 720),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered, defer: false)
+        window.title = "Burrow Disk Map"
+        window.center()
+        window.isReleasedWhenClosed = false
+        // Treemap defaults to the user's home directory; the picker
+        // inside the view lets them switch.
+        window.contentViewController = NSHostingController(rootView: DiskMapView())
+
+        let wc = NSWindowController(window: window)
+        self.diskMapWC = wc
         wc.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

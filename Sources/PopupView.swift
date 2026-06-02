@@ -95,15 +95,24 @@ struct PopupView: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 8) {
-            actionButton(title: "History", symbol: "chart.bar.xaxis") {
-                self.delegate?.openHistory()
+        // Four-up in one row would crowd at 320 px; split into two rows
+        // so each button keeps a comfortable hit target.
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                actionButton(title: "History", symbol: "chart.bar.xaxis") {
+                    self.delegate?.openHistory()
+                }
+                actionButton(title: "Disk Map", symbol: "square.grid.3x3.fill") {
+                    self.delegate?.openDiskMap()
+                }
             }
-            actionButton(title: "Cleanup", symbol: "trash") {
-                self.delegate?.openCleanup()
-            }
-            actionButton(title: "Settings", symbol: "gear") {
-                self.delegate?.openSettings()
+            HStack(spacing: 8) {
+                actionButton(title: "Cleanup", symbol: "trash") {
+                    self.delegate?.openCleanup()
+                }
+                actionButton(title: "Settings", symbol: "gear") {
+                    self.delegate?.openSettings()
+                }
             }
         }
     }
