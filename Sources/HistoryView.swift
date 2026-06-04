@@ -155,7 +155,6 @@ private struct AxisStyle {
 
 // MARK: - View
 
-@available(macOS 14.0, *)
 struct HistoryView: View {
     let db: DB
 
@@ -170,13 +169,8 @@ struct HistoryView: View {
     private let autoRefreshTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ZStack {
-            VisualEffectBackground().ignoresSafeArea()
-            LinearGradient(colors: [Brand.nearBlack.opacity(0.84), Brand.nearBlack.opacity(0.96)],
-                           startPoint: .top, endPoint: .bottom).ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                toolbar.padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 12)
+        VStack(spacing: 0) {
+            toolbar.padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 12)
                 Rectangle().fill(Brand.hairline).frame(height: 1)
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 13), GridItem(.flexible(), spacing: 13)], spacing: 13) {
@@ -197,9 +191,7 @@ struct HistoryView: View {
                 }
                 .scrollIndicators(.hidden)
             }
-        }
-        .frame(minWidth: 840, minHeight: 600)
-        .environment(\.colorScheme, .dark)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { reload() }
         .onChange(of: range) { _, new in
             Store.lastHistoryRangeMinutes = new.minutes

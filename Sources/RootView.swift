@@ -2,11 +2,9 @@
 //  RootView.swift
 //  Burrow
 //
-//  The window shell: behind-window vibrancy → per-tool tint scrim →
-//  top pill nav → tool content. Replaces the old NavigationSplitView /
-//  sidebar MainView entirely. Only Status is real today; the other four
-//  tools render the themed ComingSoonView so navigation already feels
-//  whole.
+//  The window shell: behind-window vibrancy → per-pane tint scrim → top
+//  nav → pane content. One window, one navigation model — the five
+//  tools plus Settings and History are all `Pane`s shown right here.
 //
 
 import SwiftUI
@@ -16,22 +14,22 @@ struct RootView: View {
     let sampler: Sampler
     weak var delegate: AppDelegate?
 
-    @State private var tool: Tool
+    @State private var pane: Pane
 
-    init(db: DB, sampler: Sampler, delegate: AppDelegate?, initialTool: Tool = .status) {
+    init(db: DB, sampler: Sampler, delegate: AppDelegate?, initialPane: Pane = .tool(.status)) {
         self.db = db
         self.sampler = sampler
         self.delegate = delegate
-        self._tool = State(initialValue: initialTool)
+        self._pane = State(initialValue: initialPane)
     }
 
     var body: some View {
         ZStack {
             VisualEffectBackground().ignoresSafeArea()
-            tool.scrim.ignoresSafeArea()
+            pane.scrim.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                TopNav(selected: $tool)
+                TopNav(selected: $pane)
                     .padding(.top, 13)
                     .padding(.bottom, 10)
                 content
@@ -40,28 +38,33 @@ struct RootView: View {
         }
         .frame(minWidth: 940, minHeight: 640)
         .environment(\.colorScheme, .dark)
-        .animation(.easeInOut(duration: 0.25), value: tool)
+        .animation(.easeInOut(duration: 0.22), value: pane)
     }
 
-    // All five tabs stay alive in a ZStack — switching just changes which
-    // is visible/interactive. This preserves each tab's state and any
-    // in-flight `mo` job across tab switches (the bug where switching tabs
-    // killed the previous tab's session). Heavy tabs lazy-start via
-    // `isActive` so we don't scan the disk / list apps at launch.
+    // Tools stay alive (preserving in-flight `mo` jobs); the two utility
+    // panes carry no session, so they're created on demand and torn down
+    // when you leave — same lightweight pattern, fewer live timers.
     private var content: some View {
         ZStack {
-            StatusView(db: db, sampler: sampler).tabVisible(tool == .status)
-            AnalyzeView(isActive: tool == .analyze).tabVisible(tool == .analyze)
-            SoftwareView(isActive: tool == .apps).tabVisible(tool == .apps)
-            CleanView().tabVisible(tool == .clean)
-            OptimizeView().tabVisible(tool == .optimize)
+            StatusView(db: db, sampler: sampler).tabVisible(pane == .tool(.status))
+            AnalyzeView(isActive: pane == .tool(.analyze)).tabVisible(pane == .tool(.analyze))
+            SoftwareView(isActive: pane == .tool(.apps)).tabVisible(pane == .tool(.apps))
+            CleanView().tabVisible(pane == .tool(.clean))
+            OptimizeView().tabVisible(pane == .tool(.optimize))
+
+            if pane == .settings {
+                SettingsView(onRunMaintenance: { [weak delegate] in delegate?.maintenance?.runNow() })
+            }
+            if pane == .history {
+                HistoryView(db: db)
+            }
         }
     }
 }
 
 private extension View {
     /// Keep a view in the hierarchy (so its @StateObject + work survive)
-    /// while hiding it and disabling interaction when not the active tab.
+    /// while hiding it and disabling interaction when not the active pane.
     @ViewBuilder
     func tabVisible(_ visible: Bool) -> some View {
         self.opacity(visible ? 1 : 0)

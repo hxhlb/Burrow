@@ -23,13 +23,8 @@ struct SettingsView: View {
     var onRunMaintenance: (() -> Void)?
 
     var body: some View {
-        ZStack {
-            VisualEffectBackground().ignoresSafeArea()
-            LinearGradient(colors: [Brand.nearBlack.opacity(0.84), Brand.nearBlack.opacity(0.96)],
-                           startPoint: .top, endPoint: .bottom).ignoresSafeArea()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
                     Text("Settings").font(Brand.serif(24, .medium)).foregroundStyle(Brand.textPrimary)
 
                     section("Storage", "internaldrive") {
@@ -72,9 +67,7 @@ struct SettingsView: View {
                 .frame(maxWidth: 560, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
-        }
-        .frame(minWidth: 480, minHeight: 520)
-        .environment(\.colorScheme, .dark)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { refreshStatusLabels() }
     }
 

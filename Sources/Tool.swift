@@ -84,3 +84,24 @@ enum Tool: String, CaseIterable, Identifiable {
         }
     }
 }
+
+/// Everything the main window can show. The five tools plus Burrow's two
+/// extras (Settings, History) — all navigated from the same top bar, in
+/// the same window, so there's exactly one navigation model in the app.
+enum Pane: Equatable, Hashable {
+    case tool(Tool)
+    case settings
+    case history
+
+    /// Window tint scrim. Tools carry their own colour; the utilities use
+    /// a neutral dark so they read as "chrome", not a sixth tool.
+    var scrim: LinearGradient {
+        switch self {
+        case .tool(let t):
+            return t.scrim
+        case .settings, .history:
+            return LinearGradient(colors: [Color(hex: 0x16150F).opacity(0.90), Brand.nearBlack.opacity(0.97)],
+                                  startPoint: .top, endPoint: .bottom)
+        }
+    }
+}

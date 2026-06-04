@@ -39,9 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// across the window-creation boundary; cleared once the window's
     /// content view reads it.
     private var mainWC: NSWindowController?
-    private var settingsWC: NSWindowController?
-    private var historyWC: NSWindowController?
-    fileprivate var pendingInitialTool: Tool = .status
+    fileprivate var pendingInitialPane: Pane = .tool(.status)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
@@ -87,7 +85,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // main window straight away (used for screenshot/verify loops).
         if let tab = Foundation.ProcessInfo.processInfo.environment["BURROW_OPEN_ON_LAUNCH"],
            #available(macOS 14, *) {
-            self.openMainWindow(initial: Tool(rawValue: tab) ?? .status)
+            let pane: Pane = (tab == "settings") ? .settings : (tab == "history") ? .history
+                : .tool(Tool(rawValue: tab) ?? .status)
+            self.openMainWindow(initial: pane)
         }
     }
 
@@ -104,11 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// window forward. Used by every popover action button —
     /// `openMainWindow(initial: .cleanup)` etc.
     @available(macOS 14.0, *)
-    func openMainWindow(initial: Tool = .status) {
-        // If already open, just re-theme to the requested tool and bring
+    func openMainWindow(initial: Pane = .tool(.status)) {
+        // If already open, just switch to the requested pane and bring
         // the window forward.
         if let wc = self.mainWC, let window = wc.window {
-            self.pendingInitialTool = initial
+            self.pendingInitialPane = initial
             self.installMainContent(into: window, initial: initial)
             NSApp.setActivationPolicy(.regular)   // Dock icon while open
             window.makeKeyAndOrderFront(nil)
@@ -149,86 +149,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @available(macOS 14.0, *)
-    private func installMainContent(into window: NSWindow, initial: Tool) {
+    private func installMainContent(into window: NSWindow, initial: Pane) {
         guard let db = self.db, let sampler = self.sampler else { return }
-        let root = RootView(db: db, sampler: sampler, delegate: self, initialTool: initial)
+        let root = RootView(db: db, sampler: sampler, delegate: self, initialPane: initial)
         let host = NSHostingController(rootView: root)
         host.view.wantsLayer = true
         host.view.layer?.backgroundColor = .clear
         window.contentViewController = host
     }
 
-    // MARK: - Secondary windows (Settings / History)
-
-    /// Shared translucent chrome for the secondary windows — same
-    /// frameless-glass silhouette as the main window, the SwiftUI content
-    /// paints its own dark scrim.
-    private func makeUtilityWindow(title: String, size: NSSize) -> NSWindow {
-        let w = NSWindow(contentRect: NSRect(origin: .zero, size: size),
-                         styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                         backing: .buffered, defer: false)
-        w.titlebarAppearsTransparent = true
-        w.titleVisibility = .hidden
-        w.title = title
-        w.isOpaque = false
-        w.backgroundColor = .clear
-        w.isMovableByWindowBackground = true
-        w.center()
-        w.isReleasedWhenClosed = false
-        w.delegate = self
-        return w
-    }
-
-    @available(macOS 14.0, *)
-    func openSettingsWindow() {
-        NSApp.setActivationPolicy(.regular)
-        if let wc = settingsWC, let w = wc.window {
-            w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
-        }
-        let w = makeUtilityWindow(title: "Burrow Settings", size: NSSize(width: 540, height: 600))
-        w.minSize = NSSize(width: 480, height: 520)
-        let host = NSHostingController(rootView: SettingsView(onRunMaintenance: { [weak self] in
-            self?.maintenance?.runNow()
-        }))
-        host.view.wantsLayer = true
-        host.view.layer?.backgroundColor = .clear
-        w.contentViewController = host
-        let wc = NSWindowController(window: w)
-        self.settingsWC = wc
-        wc.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    @available(macOS 14.0, *)
-    func openHistoryWindow() {
-        guard let db = self.db else { return }
-        NSApp.setActivationPolicy(.regular)
-        if let wc = historyWC, let w = wc.window {
-            w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
-        }
-        let w = makeUtilityWindow(title: "Burrow History", size: NSSize(width: 1000, height: 720))
-        w.minSize = NSSize(width: 840, height: 600)
-        let host = NSHostingController(rootView: HistoryView(db: db))
-        host.view.wantsLayer = true
-        host.view.layer?.backgroundColor = .clear
-        w.contentViewController = host
-        let wc = NSWindowController(window: w)
-        self.historyWC = wc
-        wc.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
     // MARK: - Window delegate
 
     func windowWillClose(_ notification: Notification) {
-        // Drop back to a pure menu-bar agent only when the LAST Burrow
-        // window closes (checked next runloop, after this one is gone).
-        DispatchQueue.main.async {
-            let stillOpen = [self.mainWC, self.settingsWC, self.historyWC]
-                .compactMap { $0?.window }
-                .contains { $0.isVisible }
-            if !stillOpen { NSApp.setActivationPolicy(.accessory) }
-        }
+        // Dashboard closed → back to a pure menu-bar agent (no Dock icon).
+        NSApp.setActivationPolicy(.accessory)
     }
 
     // MARK: - Dock icon

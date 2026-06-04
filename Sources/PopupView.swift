@@ -156,7 +156,7 @@ struct PopupView: View {
         VStack(spacing: 8) {
             HStack(spacing: 5) {
                 ForEach(Tool.navOrder) { tool in
-                    Button { open(tool) } label: {
+                    Button { open(.tool(tool)) } label: {
                         Text(tool.label).font(Brand.mono(9, .medium))
                             .foregroundStyle(Brand.textSecondary)
                             .padding(.horizontal, 7).padding(.vertical, 4)
@@ -168,7 +168,7 @@ struct PopupView: View {
                 iconButton("clock.arrow.circlepath") { openHistory() }
                 iconButton("gearshape") { openSettings() }
                 Spacer()
-                Button("Open Burrow") { open(.status) }
+                Button("Open Burrow") { open(.tool(.status)) }
                     .buttonStyle(.plain)
                     .font(Brand.sans(11, .semibold)).foregroundStyle(Brand.textPrimary)
                 iconButton("power") { NSApp.terminate(nil) }
@@ -185,11 +185,11 @@ struct PopupView: View {
         }.buttonStyle(.plain)
     }
 
-    private func open(_ tool: Tool) {
-        if #available(macOS 14, *) { delegate?.openMainWindow(initial: tool) }
+    private func open(_ pane: Pane) {
+        if #available(macOS 14, *) { delegate?.openMainWindow(initial: pane) }
     }
-    private func openSettings() { if #available(macOS 14, *) { delegate?.openSettingsWindow() } }
-    private func openHistory() { if #available(macOS 14, *) { delegate?.openHistoryWindow() } }
+    private func openSettings() { open(.settings) }
+    private func openHistory() { open(.history) }
 }
 
 // MARK: - Compact tile
