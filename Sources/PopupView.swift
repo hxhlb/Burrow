@@ -25,31 +25,28 @@ struct PopupView: View {
     }
 
     var body: some View {
-        // Cap the height to the screen so the dropdown can't run off the
-        // bottom; scroll if the content is taller. No custom background —
-        // the popover's own (dark) material paints the box AND the arrow,
-        // so they match.
-        let maxH = min(620, (NSScreen.main?.visibleFrame.height ?? 760) - 24)
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 11) {
-                header
-                if ops.hasActivity { activitySection }
-                if let s = model.snap {
-                    healthHero(s)
-                    metricGrid(s)
-                    DiskBatteryRows(s: s)
-                    topProcesses(s)
-                } else {
-                    waiting
-                }
-                Rectangle().fill(Brand.hairline).frame(height: 1)
-                footer
+        // No ScrollView: the popover sizes to this content, so there's no
+        // scrollbar (which, with "always show scrollbars", was eating width
+        // and shifting everything left). Kept compact so it fits on screen.
+        // No custom background — the popover's own dark material paints both
+        // the box and the arrow, so they match.
+        VStack(alignment: .leading, spacing: 9) {
+            header
+            if ops.hasActivity { activitySection }
+            if let s = model.snap {
+                healthHero(s)
+                metricGrid(s)
+                DiskBatteryRows(s: s)
+                topProcesses(s)
+            } else {
+                waiting
             }
-            .padding(13)
-            .frame(width: 334)
+            Rectangle().fill(Brand.hairline).frame(height: 1)
+            footer
         }
-        .frame(width: 334, height: maxH)
-        .scrollIndicators(.hidden)
+        .padding(13)
+        .frame(width: 334)
+        .fixedSize(horizontal: false, vertical: true)
         .environment(\.colorScheme, .dark)
         .onAppear { model.start() }
         .onDisappear { model.stop() }
@@ -180,7 +177,7 @@ struct PopupView: View {
     private func topProcesses(_ s: MoleStatus) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Eyebrow(text: "Top processes", glyph: "list.bullet", color: Brand.textSecondary)
-            ForEach(Array((s.topProcesses ?? []).prefix(5).enumerated()), id: \.offset) { _, p in
+            ForEach(Array((s.topProcesses ?? []).prefix(4).enumerated()), id: \.offset) { _, p in
                 HStack(spacing: 8) {
                     Image(nsImage: AppIcon.image(for: p) ?? PopupView.blankIcon)
                         .resizable().frame(width: 15, height: 15)
@@ -251,18 +248,18 @@ private struct HUDTile: View {
     var foot: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             Eyebrow(text: eyebrow, glyph: glyph, color: accent)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value).font(Brand.mono(16, .semibold)).foregroundStyle(Brand.textPrimary)
+                Text(value).font(Brand.mono(15, .semibold)).foregroundStyle(Brand.textPrimary)
                 if !unit.isEmpty { Text(unit).font(Brand.mono(9)).foregroundStyle(Brand.textSecondary) }
             }
-            MiniChart(values: values, color: accent, style: style).frame(height: 16)
+            MiniChart(values: values, color: accent, style: style).frame(height: 13)
             if let f = foot {
                 Text(f).font(Brand.mono(8.5)).foregroundStyle(Brand.textTertiary).lineLimit(1)
             }
         }
-        .padding(9)
+        .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 10).fill(Brand.cardFill))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Brand.hairline, lineWidth: 1))
