@@ -10,7 +10,6 @@
 //  Mole returns only the immediate children of the requested path, with
 //  their aggregate sizes. The drill-in UX (click a directory to descend)
 //  means we don't need to recurse upfront — each level is one mo call.
-//  Typical home folder scan finishes in a few seconds.
 //
 //  Why not FileManager.enumerator: Mole's analyze-go walks via
 //  getattrlistbulk which is ~10× faster than NSFileManager for large
@@ -70,10 +69,23 @@ enum DiskScanner {
     /// for each direct child; drill in by calling again with the child's
     /// path.
     static func scan(_ path: String) throws -> DiskScanResult {
+        if isSamePath(path, NSHomeDirectory()) {
+            return try scanHome(path)
+        }
+        return try scanWithMole(path)
+    }
+
+    static func shouldSkipInHomeScan(_ path: String, homeDirectory: String = NSHomeDirectory()) -> Bool {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let homeURL = URL(fileURLWithPath: homeDirectory).standardizedFileURL
+        return url.deletingLastPathComponent().path == homeURL.path && url.lastPathComponent == "Library"
+    }
+
+    private static func scanWithMole(_ path: String) throws -> DiskScanResult {
         guard MoleCLI.findExecutable() != nil else {
             throw DiskScanError.moNotFound
         }
-        // 5-minute timeout — `mo analyze` on the home dir is usually a
+        // 5-minute timeout — `mo analyze` on a large directory is usually a
         // few seconds, but a cold cache + large external volume + no
         // indexing can stretch it. Beyond 5 min something's wrong.
         let result = try MoleCLI.run(args: ["analyze", "--json", path], timeout: 300)
@@ -84,6 +96,57 @@ enum DiskScanner {
             throw DiskScanError.parseFailed("non-utf8 stdout")
         }
         return try Self.parse(data)
+    }
+
+    private static func scanHome(_ path: String) throws -> DiskScanResult {
+        let homeURL = URL(fileURLWithPath: path)
+        let urls = try FileManager.default.contentsOfDirectory(
+            at: homeURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsPackageDescendants]
+        ).filter { !shouldSkipInHomeScan($0.path, homeDirectory: path) }
+
+        let sizes = try topLevelSizes(urls.map(\.path))
+        var entries: [DiskScanEntry] = []
+        entries.reserveCapacity(urls.count)
+        for url in urls {
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+            let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let size = sizes[url.path] ?? (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+            entries.append(DiskScanEntry(
+                id: url.path,
+                name: url.lastPathComponent,
+                path: url.path,
+                size: size,
+                isDir: values?.isDirectory ?? false,
+                lastAccess: attrs?[.modificationDate] as? Date
+            ))
+        }
+        entries.sort { $0.size > $1.size }
+        let total = entries.reduce(0) { $0 + $1.size }
+        return DiskScanResult(
+            path: path,
+            totalSize: total,
+            totalFiles: entries.count,
+            entries: entries,
+            scannedAt: Date()
+        )
+    }
+
+    private static func topLevelSizes(_ paths: [String]) throws -> [String: Int64] {
+        guard !paths.isEmpty else { return [:] }
+        let result = try MoleCLI.run(args: ["-sk"] + paths, executable: "/usr/bin/du", timeout: 300)
+        var sizes: [String: Int64] = [:]
+        for line in result.stdout.split(separator: "\n") {
+            let parts = line.split(separator: "\t", maxSplits: 1)
+            guard parts.count == 2, let kb = Int64(parts[0].trimmingCharacters(in: .whitespaces)) else { continue }
+            sizes[String(parts[1])] = kb * 1024
+        }
+        return sizes
+    }
+
+    private static func isSamePath(_ lhs: String, _ rhs: String) -> Bool {
+        URL(fileURLWithPath: lhs).standardizedFileURL.path == URL(fileURLWithPath: rhs).standardizedFileURL.path
     }
 
     // MARK: - Parsing
