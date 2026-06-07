@@ -31,15 +31,14 @@ struct OptimizeView: View {
                 }
             }
         } else {
-            let report = parseTaskReport(runner.lines)
             VStack(spacing: 0) {
                 statusBar.padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 12)
                 Rectangle().fill(Brand.hairline).frame(height: 1)
                 if isDone, !preview, !runner.wasCancelled {
                     DoneBanner(accent: Tool.optimize.accent, title: "Maintenance complete",
-                               detail: "\(report.groups.count) areas refreshed")
+                               detail: "\(runner.groups.count) areas refreshed")
                 }
-                TaskReportView(groups: report.groups, accent: Tool.optimize.accent)
+                TaskReportView(groups: runner.groups, accent: Tool.optimize.accent)
             }
         }
     }
@@ -56,8 +55,8 @@ struct OptimizeView: View {
                 }.buttonStyle(.plain)
             }
             if isDone {
-                Button { runOptimize() } label: {
-                    Label("Run again", systemImage: "arrow.clockwise")
+                Button { runner.reset() } label: {
+                    Label("Back", systemImage: "chevron.left")
                         .font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
                 }.buttonStyle(.plain)
             }

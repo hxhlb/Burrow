@@ -99,6 +99,10 @@ final class CommandRunner: ObservableObject {
 
     @Published var phase: Phase = .idle
     @Published var lines: [String] = []
+    /// Parsed report, recomputed once per coalesced flush — NOT per SwiftUI
+    /// render. Views read these instead of re-parsing `lines` every frame.
+    @Published private(set) var groups: [TaskGroup] = []
+    @Published private(set) var summary: TaskSummary?
     /// Set when the user aborts via `cancel()`, so the UI can say "Stopped"
     /// rather than reporting the terminated process as a plain failure.
     @Published private(set) var wasCancelled = false
@@ -107,12 +111,14 @@ final class CommandRunner: ObservableObject {
     private var operationLabel: String?
     private var task: Process?
     private var buffer = ""
+    private var pending: [String] = []
+    private var flushScheduled = false
     private var tailTimer: Timer?
     private var logHandle: FileHandle?
 
     func run(_ args: [String], elevated: Bool = false, label: String? = nil) {
         guard let mo = MoleCLI.findExecutable() else { phase = .failed("mo not found"); return }
-        lines = []; buffer = ""; wasCancelled = false; phase = .running
+        lines = []; buffer = ""; pending = []; groups = []; summary = nil; wasCancelled = false; phase = .running
         operationLabel = label
         if let label { OperationCenter.shared.begin(opId, label: label) }
         if elevated { runElevated(mo: mo, args: args); return }
@@ -156,6 +162,13 @@ final class CommandRunner: ObservableObject {
         // immediately rather than waiting on a terminationHandler that may
         // not fire for an already-dead task.
         if task == nil || task?.isRunning == false { phase = .done(130) }
+    }
+
+    /// Return to the idle (hero) state — used by the "Back" button on a
+    /// finished report so the user can get back to the tool's menu.
+    func reset() {
+        phase = .idle
+        lines = []; buffer = ""; pending = []; groups = []; summary = nil; wasCancelled = false
     }
 
     /// Run `mo <args>` as root via ONE osascript auth prompt, instead of
@@ -206,12 +219,38 @@ final class CommandRunner: ObservableObject {
         buffer += s
         var parts = buffer.components(separatedBy: "\n")
         buffer = parts.removeLast()
-        lines.append(contentsOf: parts)
+        guard !parts.isEmpty else { return }
+        pending.append(contentsOf: parts)
         if operationLabel != nil, let last = parts.last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
             OperationCenter.shared.detail(opId, last)
         }
+        scheduleFlush()
     }
-    private func flush() { if !buffer.isEmpty { lines.append(buffer); buffer = "" } }
+
+    /// Coalesce output: batch incoming lines and update @Published state at
+    /// most ~8×/sec, so a chatty `mo` run doesn't re-render the report (and
+    /// re-parse every line) on each chunk — the GUI overhead that made the
+    /// app feel heavier and laggier than the bare CLI.
+    private func scheduleFlush() {
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in self?.applyPending() }
+    }
+
+    private func applyPending() {
+        flushScheduled = false
+        guard !pending.isEmpty else { return }
+        lines.append(contentsOf: pending)
+        pending.removeAll(keepingCapacity: true)
+        let r = parseTaskReport(lines)
+        groups = r.groups; summary = r.summary
+    }
+
+    /// Final flush at end of stream (plus the trailing partial line).
+    private func flush() {
+        if !buffer.isEmpty { pending.append(buffer); buffer = "" }
+        applyPending()
+    }
 
     nonisolated static func stripAnsi(_ s: String) -> String {
         guard s.contains("\u{1B}") else { return s }
