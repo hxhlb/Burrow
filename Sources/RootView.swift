@@ -46,7 +46,8 @@ struct RootView: View {
     // when you leave — same lightweight pattern, fewer live timers.
     private var content: some View {
         ZStack {
-            StatusView(db: db, sampler: sampler).tabVisible(pane == .tool(.status))
+            StatusView(db: db, sampler: sampler, onNavigate: { pane = $0 })
+                .tabVisible(pane == .tool(.status))
             AnalyzeView(isActive: pane == .tool(.analyze)).tabVisible(pane == .tool(.analyze))
             SoftwareView(isActive: pane == .tool(.apps)).tabVisible(pane == .tool(.apps))
             CleanView().tabVisible(pane == .tool(.clean))

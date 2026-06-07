@@ -16,6 +16,8 @@ struct SettingsView: View {
     @State private var retentionDays: Int = Store.retentionDays
     @State private var autoVacuum: Bool = Store.autoVacuum
     @State private var queryServerEnabled: Bool = Store.queryServerEnabled
+    @State private var aiEnabled: Bool = Store.aiEnabled
+    @State private var aiOllamaModel: String = Store.aiOllamaModel
     @State private var dbSizeText: String = "—"
     @State private var lastMaintenanceText: String = "—"
 
@@ -55,6 +57,19 @@ struct SettingsView: View {
                             Store.sampleIntervalSeconds = $0
                         }
                         footnote("Burrow runs `mo status --json` at this cadence. 60 s is plenty for charts; tighter intervals give finer detail at the cost of more subprocess churn.")
+                    }
+
+                    section("Explain (AI) — experimental", "sparkles") {
+                        toggleRow("Enable the Explain lens", isOn: $aiEnabled) { Store.aiEnabled = $0 }
+                        HStack {
+                            Text("Local model (Ollama)").font(Brand.sans(12)).foregroundStyle(Brand.textPrimary)
+                            Spacer()
+                            TextField("llama3.2", text: $aiOllamaModel)
+                                .textFieldStyle(.plain).font(Brand.mono(11))
+                                .multilineTextAlignment(.trailing).frame(width: 130)
+                                .onSubmit { Store.aiOllamaModel = aiOllamaModel }
+                        }
+                        footnote("Adds an \u{201C}Explain\u{201D} button to Status that reads your latest snapshot and explains it in plain English, optionally suggesting Clean/Purge/Installers. Runs against a local Ollama model by default — nothing leaves this Mac. Start it with `ollama run <model>`. (Cloud key support is coming.)")
                     }
 
                     section("MCP query server", "antenna.radiowaves.left.and.right") {

@@ -58,6 +58,26 @@ enum Store {
         set { d.set(newValue, forKey: "auto_vacuum") }
     }
 
+    // MARK: - AI (Explain lens)
+
+    /// Whether the optional "Explain" AI lens is enabled. Off by default —
+    /// it's opt-in, and when on it defaults to a local model so nothing
+    /// leaves the Mac.
+    static var aiEnabled: Bool {
+        get { d.object(forKey: "ai_enabled") as? Bool ?? false }
+        set { d.set(newValue, forKey: "ai_enabled") }
+    }
+
+    /// The local Ollama model the Explain lens talks to. Small + fast by
+    /// default; the user can point it at any model they've pulled.
+    static var aiOllamaModel: String {
+        get {
+            let v = (d.string(forKey: "ai_ollama_model") ?? "").trimmingCharacters(in: .whitespaces)
+            return v.isEmpty ? "llama3.2" : v
+        }
+        set { d.set(newValue, forKey: "ai_ollama_model") }
+    }
+
     // MARK: - MCP / QueryServer
 
     /// Localhost port for the JSON HTTP server. 9277 by default
