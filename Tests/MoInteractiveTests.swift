@@ -72,4 +72,30 @@ final class MoInteractiveTests: XCTestCase {
         let expected = [UInt8](arrayLiteral: 0x20) + down + [0x20] + down + [0x20] + [0x0d]
         XCTAssertEqual(MoTUI.keystrokesToSelect([0, 1, 2], count: 3, confirm: true), expected)
     }
+
+    // A real `mo purge` frame: rows are "<project path>  <size> | <category> | <age>",
+    // the header carries "[1/53]" (53 total, but Mole renders far fewer).
+    private let purgeFrame = """
+    Select Categories to Clean [1/53], 0B, 0 selected
+    \u{27A4} \u{25CB} ~/Desktop/Wisp                           2.67GB | .build            | 2d
+      \u{25CF} ~/Desktop/the-ripples                    1.20GB | node_modules      | <1d
+      \u{25CB} ~/Desktop/devport                        1.05GB | node_modules      | 2d
+    \u{2191}\u{2193} | Space Select | Enter Confirm | A All | I Invert | Q Quit
+    """
+
+    func testParse_handlesPurgeRowShape() {
+        let screen = MoTUI.parse(purgeFrame)
+        XCTAssertEqual(screen.items.count, 3)
+        XCTAssertEqual(screen.items.map { $0.name },
+                       ["~/Desktop/Wisp", "~/Desktop/the-ripples", "~/Desktop/devport"])
+        XCTAssertEqual(screen.items[0].size, "2.67GB")
+        XCTAssertEqual(screen.items[0].location, ".build", "the category between the first pair of pipes")
+        XCTAssertEqual(MoTUI.selectedIndices(screen), [1])
+        XCTAssertEqual(screen.cursor, 0)
+    }
+
+    func testTotalCount_readsHeaderBracket() {
+        XCTAssertEqual(MoTUI.totalCount(purgeFrame), 53, "the M in [n/M]")
+        XCTAssertNil(MoTUI.totalCount(frame), "installer frame has no [n/M] header")
+    }
 }

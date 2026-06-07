@@ -90,6 +90,16 @@ enum MoTUI {
 
     static let quit: [UInt8] = [0x71]  // 'q'
 
+    /// Total item count from a "[current/total]" header. Mole caps how many
+    /// rows it renders (≈50), so on a long list the header total exceeds the
+    /// number we can parse — the UI uses this to say "showing N of M".
+    static func totalCount(_ raw: String) -> Int? {
+        let text = stripANSI(raw)
+        guard let r = text.range(of: #"\[\d+/(\d+)\]"#, options: .regularExpression) else { return nil }
+        let inside = text[r].dropFirst().dropLast()      // "1/53"
+        return Int(inside.split(separator: "/").last.map(String.init) ?? "")
+    }
+
     // MARK: - Parsing helpers
 
     private static func selectedCountIn(_ line: String) -> Int? {

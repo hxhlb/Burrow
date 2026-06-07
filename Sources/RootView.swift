@@ -50,8 +50,8 @@ struct RootView: View {
             AnalyzeView(isActive: pane == .tool(.analyze)).tabVisible(pane == .tool(.analyze))
             SoftwareView(isActive: pane == .tool(.apps)).tabVisible(pane == .tool(.apps))
             CleanView().tabVisible(pane == .tool(.clean))
-            StreamingToolView(action: .purge).tabVisible(pane == .tool(.purge))
-            InstallerView(isActive: pane == .tool(.installer)).tabVisible(pane == .tool(.installer))
+            MoInteractiveView(.purge, isActive: pane == .tool(.purge)).tabVisible(pane == .tool(.purge))
+            MoInteractiveView(.installer, isActive: pane == .tool(.installer)).tabVisible(pane == .tool(.installer))
             OptimizeView().tabVisible(pane == .tool(.optimize))
 
             if pane == .settings {
