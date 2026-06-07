@@ -1,0 +1,178 @@
+name: release
+
+# Cut a release by pushing a version tag that matches the app version:
+#
+#   git tag v0.5.0 && git push origin v0.5.0
+#
+# This builds a Release app, code-signs + notarizes it (when the signing
+# secrets are configured — otherwise it ships unsigned, as today),
+# publishes a GitHub release with the zip, and bumps the Homebrew cask in
+# caezium/homebrew-tap so `brew upgrade --cask caezium/tap/burrow` picks it
+# up. Pushing ordinary commits to main does NOT touch the tap — only a tag.
+#
+# Optional secrets for a signed + notarized build:
+#   MACOS_CERT_P12        base64 of a "Developer ID Application" .p12
+#   MACOS_CERT_PASSWORD   password for that .p12
+#   MACOS_SIGN_IDENTITY   e.g. "Developer ID Application: Name (TEAMID)"
+#   AC_API_KEY_ID         App Store Connect API key id
+#   AC_API_ISSUER_ID      App Store Connect issuer id
+#   AC_API_KEY_P8         base64 of the AuthKey_XXXX.p8
+# Without the cert secrets the build is unsigned (current behaviour); with
+# the cert but no AC_* keys it's signed but not notarized.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the GitHub release on this repo
+
+concurrency:
+  # Serialize releases so two version tags can't race the tap push.
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Build (Release)
+        id: build
+        run: |
+          bash scripts/release.sh >/dev/null
+          APP="build_dist/Build/Products/Release/Burrow.app"
+          [ -d "$APP" ] || { echo "::error::build produced no app at $APP"; exit 1; }
+          VERSION=$(defaults read "$PWD/$APP/Contents/Info" CFBundleShortVersionString)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the tag matches the app version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$TAG" != "${{ steps.build.outputs.version }}" ]; then
+            echo "::error::tag v$TAG != app version ${{ steps.build.outputs.version }}. Bump CFBundleShortVersionString in project.yml to match the tag."
+            exit 1
+          fi
+
+      - name: Code-sign (Developer ID) — skipped if no cert
+        id: sign
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: |
+          APP="${{ steps.build.outputs.app }}"
+          if [ -z "$CERT_P12" ] || [ -z "$SIGN_IDENTITY" ]; then
+            echo "::warning::No signing cert (MACOS_CERT_P12 / MACOS_SIGN_IDENTITY) set — shipping UNSIGNED."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KPW="$(uuidgen)"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KPW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KPW" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KPW" "$KEYCHAIN" >/dev/null
+          # Put our keychain first in the search list so codesign finds the identity.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
+          rm -f "$RUNNER_TEMP/cert.p12"
+          # Hardened runtime + secure timestamp are required for notarization.
+          codesign --force --options runtime --timestamp \
+            --entitlements Resources/Burrow.entitlements \
+            --sign "$SIGN_IDENTITY" "$APP"
+          codesign --verify --strict --verbose=2 "$APP"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Notarize + staple — skipped if no API key
+        if: steps.sign.outputs.signed == 'true'
+        env:
+          AC_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          AC_KEY_P8: ${{ secrets.AC_API_KEY_P8 }}
+        run: |
+          APP="${{ steps.build.outputs.app }}"
+          if [ -z "$AC_KEY_P8" ] || [ -z "$AC_KEY_ID" ] || [ -z "$AC_ISSUER_ID" ]; then
+            echo "::warning::Signed but no notarization key (AC_API_*) — Gatekeeper may still warn on first launch."
+            exit 0
+          fi
+          echo "$AC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/ac_key.p8"
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$RUNNER_TEMP/ac_key.p8" --key-id "$AC_KEY_ID" --issuer "$AC_ISSUER_ID" \
+            --wait --timeout 30m
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+          rm -f "$RUNNER_TEMP/ac_key.p8"
+
+      - name: Package (zip + sha256)
+        id: pkg
+        run: |
+          APP="${{ steps.build.outputs.app }}"
+          ZIP="dist/Burrow-${{ steps.build.outputs.version }}.zip"
+          rm -f "$ZIP"
+          # Re-zip AFTER signing/stapling so the published artifact carries
+          # the signature + notarization ticket. ditto is the Apple-blessed
+          # zipper that preserves the bundle structure.
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Built Burrow ${{ steps.build.outputs.version }} (signed=${{ steps.sign.outputs.signed }}) sha256=$SHA"
+
+      - name: Publish GitHub release (idempotent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ZIP="dist/Burrow-${{ steps.build.outputs.version }}.zip"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # Release already exists (e.g. re-run after adding TAP_PAT) —
+            # refresh the asset instead of failing.
+            gh release upload "$GITHUB_REF_NAME" "$ZIP" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$ZIP" \
+              --title "Burrow ${{ steps.build.outputs.version }}" \
+              --notes-file RELEASES.md
+          fi
+
+      - name: Bump Homebrew cask in caezium/homebrew-tap
+        env:
+          # PAT with `contents:write` (classic: `repo`) on caezium/homebrew-tap.
+          # Add it under Settings ▸ Secrets and variables ▸ Actions ▸ TAP_PAT.
+          GH_TOKEN: ${{ secrets.TAP_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::TAP_PAT secret is not set — cask not bumped. Release is published; add the secret and re-run, or bump Casks/burrow.rb by hand."
+            exit 1
+          fi
+          VERSION="${{ steps.build.outputs.version }}"
+          SHA="${{ steps.pkg.outputs.sha }}"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/caezium/homebrew-tap.git" tap
+          CASK="tap/Casks/burrow.rb"
+          /usr/bin/sed -i '' -E \
+            -e "s/version \"[^\"]+\"/version \"${VERSION}\"/" \
+            -e "s/sha256 \"[^\"]+\"/sha256 \"${SHA}\"/" \
+            "$CASK"
+          # Guard against a silent no-op: if the cask's format ever drifts so
+          # the sed matches nothing, the version/sha won't be present and the
+          # `git diff --quiet` below would otherwise report success while the
+          # tap stays stale. Fail loudly instead.
+          if ! grep -q "version \"${VERSION}\"" "$CASK" || ! grep -q "sha256 \"${SHA}\"" "$CASK"; then
+            echo "::error::cask edit didn't take — $CASK is missing version \"${VERSION}\" or the new sha256 after sed. Its format may have drifted; bump it by hand."
+            exit 1
+          fi
+          cd tap
+          if git diff --quiet; then
+            echo "cask already at ${VERSION}; nothing to do"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "burrow ${VERSION}"
+          git push
