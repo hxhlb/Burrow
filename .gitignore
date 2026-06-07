@@ -22,3 +22,4 @@ xcuserdata/
 # LLVM coverage from `xcodebuild test`
 *.profraw
 *.profdata
+build_test/
