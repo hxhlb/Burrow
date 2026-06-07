@@ -34,17 +34,16 @@ struct CleanView: View {
                 }
             }
         } else {
-            let report = parseTaskReport(runner.lines)
             VStack(spacing: 0) {
                 statusBar.padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 12)
                 Rectangle().fill(Brand.hairline).frame(height: 1)
                 if isDone, mode == .real {
                     DoneBanner(accent: Tool.clean.accent, title: "Cleaned",
-                               detail: report.summary.map { "Freed up to \($0.space) · \($0.items) items" })
-                } else if mode == .dry, let s = report.summary {
+                               detail: runner.summary.map { "Freed up to \($0.space) · \($0.items) items" })
+                } else if mode == .dry, let s = runner.summary {
                     summaryBanner(s)
                 }
-                TaskReportView(groups: report.groups, accent: Tool.clean.accent)
+                TaskReportView(groups: runner.groups, accent: Tool.clean.accent)
             }
         }
     }
@@ -61,13 +60,10 @@ struct CleanView: View {
                 }.buttonStyle(.plain)
             }
             if isDone {
-                Button { startDry() } label: {
-                    Label("Re-scan", systemImage: "arrow.clockwise")
+                Button { runner.reset() } label: {
+                    Label("Back", systemImage: "chevron.left")
                         .font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
                 }.buttonStyle(.plain)
-            }
-            if mode == .dry, isDone {
-                PillButton(title: "Clean for real") { confirmReal() }
             }
         }
     }

@@ -258,6 +258,10 @@ final class AnalyzeModel: ObservableObject {
     private var total: Int64 = 0
     private(set) var started = false
     private let opId = UUID()
+    /// Cache scan results by path so navigating back/into already-seen
+    /// folders is instant instead of re-running `mo analyze` (~4 CPU-s)
+    /// each time. Refresh clears the current path to force a fresh walk.
+    private var cache: [String: (entries: [DiskScanEntry], total: Int64)] = [:]
 
     var summaryLine: String {
         entries.isEmpty ? "—" : "\(entries.count) items · \(Fmt.bytes(total))"
@@ -285,19 +289,27 @@ final class AnalyzeModel: ObservableObject {
 
     func refresh() {
         guard let last = crumbs.last else { return }
-        scan(last.path, name: last.name, push: false)
+        cache[last.path] = nil   // drop the cached walk so we re-scan
+        scan(last.path, name: last.name, push: false, force: true)
     }
 
-    private func scan(_ path: String, name: String, push: Bool) {
+    private func scan(_ path: String, name: String, push: Bool, force: Bool = false) {
+        if push { crumbs.append((name, path)) }
+        // Cache hit → show instantly; don't re-run `mo analyze` for a
+        // folder we already walked (back/drill is the common navigation).
+        if !force, let cached = cache[path] {
+            entries = cached.entries; total = cached.total; loading = false; error = nil
+            return
+        }
         loading = true
         error = nil
-        if push { crumbs.append((name, path)) }
         OperationCenter.shared.begin(opId, label: "Analyzing \(name)")
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 let r = try DiskScanner.scan(path)
                 let sum = r.totalSize > 0 ? r.totalSize : r.entries.reduce(0) { $0 + $1.size }
                 Task { @MainActor in
+                    self.cache[path] = (r.entries, sum)
                     self.entries = r.entries
                     self.total = sum
                     self.loading = false
