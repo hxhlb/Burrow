@@ -335,6 +335,11 @@ final class SoftwareModel: ObservableObject {
                 self.apps = parsed
                 self.selected = []
                 self.loading = false
+                // Re-fetched apps have lastUsed == nil; recompute dates if the
+                // user is still sorting by Recent (mirror load()), else Recent
+                // would silently collapse after an uninstall.
+                self.recentLoaded = false
+                if self.sort == .recent { self.ensureRecentDates() }
                 OperationCenter.shared.end(opId, success: (res?.exitCode ?? 1) == 0,
                                            detail: "\(targets.count) moved to Trash")
             }
