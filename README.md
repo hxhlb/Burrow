@@ -35,7 +35,7 @@ and an **MCP server** so any AI agent (Claude Code, Cursor, Codex…) can ask
     <td><img alt="Optimize — one-tap safe maintenance" src="https://github.com/user-attachments/assets/9c45a85e-3f1c-4fe7-96cc-db08605cb663"></td>
   </tr>
   <tr>
-    <td><img alt="Software — installed apps with search, sort, and multi-select uninstall" src="https://github.com/user-attachments/assets/61f20645-4650-499e-b323-d4b780d5e020"></td>
+    <td><img alt="Software — installed apps with search, sort, and multi-select uninstall" src="https://raw.githubusercontent.com/caezium/Burrow/main/docs/assets/shot-apps.png"></td>
     <td><img alt="History — long-range charts over a local SQLite metric history" src="https://github.com/user-attachments/assets/38e2de8e-e654-4eab-a20a-f4521c921f31"></td>
   </tr>
 </table>
