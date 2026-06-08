@@ -122,7 +122,7 @@ final class UpdatesModel: ObservableObject {
         loading = true; error = nil
         DispatchQueue.global(qos: .userInitiated).async {
             let r = Self.runBrew(brew, ["outdated", "--json=v2"])
-            let parsed = Self.parse(r.out)
+            let parsed = Self.parseOutdated(r.out)
             Task { @MainActor in
                 if r.code != 0 && parsed.isEmpty && !r.err.isEmpty {
                     self.error = String(r.err.prefix(160))
@@ -187,7 +187,9 @@ final class UpdatesModel: ObservableObject {
                           code: t.terminationStatus)
     }
 
-    private static func parse(_ json: String) -> [OutdatedItem] {
+    /// Pure parser for `brew outdated --json=v2` — unit-tested against captured
+    /// brew output, like the other `mo`/CLI parsers.
+    nonisolated static func parseOutdated(_ json: String) -> [OutdatedItem] {
         guard let data = json.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
         var out: [OutdatedItem] = []
