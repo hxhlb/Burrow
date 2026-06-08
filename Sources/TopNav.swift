@@ -37,6 +37,7 @@ struct TopNav: View {
 
     private var utilityGroup: some View {
         HStack(spacing: 2) {
+            utility("list.bullet.rectangle", pane: .activity)
             utility("clock.arrow.circlepath", pane: .history)
             utility("gearshape", pane: .settings)
         }

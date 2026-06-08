@@ -92,6 +92,7 @@ enum Pane: Equatable, Hashable {
     case tool(Tool)
     case settings
     case history
+    case activity
 
     /// Window tint scrim. Tools carry their own colour; the utilities use
     /// a neutral dark so they read as "chrome", not a sixth tool.
@@ -99,7 +100,7 @@ enum Pane: Equatable, Hashable {
         switch self {
         case .tool(let t):
             return t.scrim
-        case .settings, .history:
+        case .settings, .history, .activity:
             return LinearGradient(colors: [Color(hex: 0x16150F).opacity(0.90), Brand.nearBlack.opacity(0.97)],
                                   startPoint: .top, endPoint: .bottom)
         }

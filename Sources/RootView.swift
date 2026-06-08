@@ -58,6 +58,9 @@ struct RootView: View {
             if pane == .history {
                 HistoryView(db: db)
             }
+            if pane == .activity {
+                ActivityView()
+            }
         }
     }
 }
