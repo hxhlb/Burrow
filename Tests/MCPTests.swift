@@ -41,7 +41,8 @@ final class MCPTests: XCTestCase {
         let names = d.compactMap { $0["name"] as? String }
         XCTAssertEqual(Set(names),
                        ["burrow_snapshot", "burrow_history", "burrow_top_processes",
-                        "burrow_process_usage", "burrow_info"])
+                        "burrow_process_usage", "burrow_info",
+                        "burrow_cleanup_history", "burrow_deleted_files"])
         // Every tool must carry an inputSchema and a description.
         for tool in d {
             XCTAssertNotNil(tool["description"] as? String)
@@ -149,6 +150,51 @@ final class MCPTests: XCTestCase {
         XCTAssertTrue(BurrowMain.isMCPInvocation(["burrow", "mcp"]))
         XCTAssertFalse(BurrowMain.isMCPInvocation(["Burrow"]))
         XCTAssertFalse(BurrowMain.isMCPInvocation(["Burrow", "status"]))
+    }
+
+    // The two issue-#2 tools shell out to `mo`/read its log, which may be
+    // absent on a CI runner. They must still return parseable JSON (real
+    // data when Mole is present, a graceful empty object otherwise) and
+    // never throw — an agent should never get a -32603 for "Mole isn't here".
+    func testCleanupHistory_alwaysReturnsValidJSON() throws {
+        let json = try catalog.call(name: "burrow_cleanup_history", arguments: ["limit": 5])
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        XCTAssertTrue(obj["sessions"] != nil || obj["error"] != nil,
+                      "must carry sessions (mo present) or an error marker")
+    }
+
+    func testDeletedFiles_alwaysReturnsValidJSON() throws {
+        let json = try catalog.call(name: "burrow_deleted_files", arguments: ["limit": 10])
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        XCTAssertNotNil(obj["count"] as? Int)
+        XCTAssertNotNil(obj["files"] as? [[String: Any]])
+    }
+
+    func testParseDeletionLog_parsesRowsNewestFirst() {
+        let log = """
+        2026-06-07T10:00:00+0800\ttrash\tcache\tok\t/Users/x/Library/Caches/a
+        2026-06-07T10:00:01+0800\tremove\tlog\tok\t/Users/x/Library/Logs/b.log
+        2026-06-07T10:00:02+0800\ttrash\tunknown\tfailed\t/Users/x/c
+        """
+        let e = ToolCatalog.parseDeletionLog(log, limit: 10)
+        XCTAssertEqual(e.count, 3)
+        XCTAssertEqual(e.first?["path"] as? String, "/Users/x/c", "newest first")
+        XCTAssertEqual(e.first?["status"] as? String, "failed")
+        XCTAssertEqual(e.last?["action"] as? String, "trash")
+    }
+
+    func testParseDeletionLog_skipsMalformedLines() {
+        let log = "garbage with no tabs\n2026\ttrash\tc\tok\t/a\n2026\ttrash\tc\tok\t/b"
+        let e = ToolCatalog.parseDeletionLog(log, limit: 10)
+        XCTAssertEqual(e.count, 2, "the tab-less line is dropped")
+    }
+
+    func testParseDeletionLog_respectsLimit() {
+        let log = (1...5).map { "2026\ttrash\tc\tok\t/\($0)" }.joined(separator: "\n")
+        let e = ToolCatalog.parseDeletionLog(log, limit: 2)
+        XCTAssertEqual(e.count, 2)
+        XCTAssertEqual(e.first?["path"] as? String, "/5", "keeps the 2 most recent, newest first")
+        XCTAssertEqual(e.last?["path"] as? String, "/4")
     }
 
     func testCallUnknownTool_throwsUnknown() {
