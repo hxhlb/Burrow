@@ -100,6 +100,14 @@ enum MoTUI {
         return Int(inside.split(separator: "/").last.map(String.init) ?? "")
     }
 
+    /// The N from Mole's final confirm screen ("Remove 3 artifacts, 1.2GB" /
+    /// "Remove 1 installer"). Used to verify the count before the second Enter.
+    static func removalCount(_ raw: String) -> Int? {
+        let text = stripANSI(raw)
+        guard let r = text.range(of: #"Remove\s+\d+"#, options: .regularExpression) else { return nil }
+        return Int(text[r].filter(\.isNumber))
+    }
+
     // MARK: - Parsing helpers
 
     private static func selectedCountIn(_ line: String) -> Int? {

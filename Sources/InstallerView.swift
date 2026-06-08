@@ -31,9 +31,12 @@ final class MoInteractiveRunner: ObservableObject {
     private let subcommand: String
     private var pty = PTYTask()
     private var screen = ""        // raw TUI output, pre-confirm
-    private var result = ""        // output after Enter (Mole's removal results)
+    private var result = ""        // output after the FINAL Enter (Mole's removal results)
     private var confirmed = false
     private var listReady = false
+    private var pressedProceed = false   // first Enter sent → capturing Mole's "Remove N?" screen
+    private var confirmScreen = ""       // output between the first and second Enter
+    private var wantedCount = 0          // how many we intend to remove (verified on the confirm screen)
 
     init(subcommand: String, title: String) { self.subcommand = subcommand; self.title = title }
 
@@ -54,6 +57,7 @@ final class MoInteractiveRunner: ObservableObject {
         pty.terminate()
         pty = PTYTask()
         screen = ""; result = ""; confirmed = false; listReady = false
+        pressedProceed = false; confirmScreen = ""; wantedCount = 0
         items = []; resultText = ""; totalCount = 0; phase = .scanning
         start()
     }
@@ -67,6 +71,7 @@ final class MoInteractiveRunner: ObservableObject {
     func confirm(_ wanted: Set<Int>) {
         guard phase == .choosing, !wanted.isEmpty else { return }
         phase = .applying
+        wantedCount = wanted.count
         let wantedNames = Set(wanted.compactMap { items.indices.contains($0) ? items[$0].name : nil })
         let expectedCount = items.count
         pty.send(MoTUI.keystrokesToSelect(wanted, count: items.count, confirm: false))
@@ -89,8 +94,12 @@ final class MoInteractiveRunner: ObservableObject {
                 && onScreen == wanted
                 && onScreenNames == wantedNames
             if safe {
-                confirmed = true
-                pty.send([0x0d])                    // Enter → Mole removes exactly these
+                // Selection verified. Press Enter to PROCEED to Mole's final
+                // "Remove N? Enter confirm, ESC cancel" screen, then answer it.
+                pressedProceed = true
+                confirmScreen = ""
+                pty.send([0x0d])
+                awaitFinalConfirm(attempt: 0)
             } else {
                 pty.send(MoTUI.quit)
                 phase = .failed("Couldn't confirm the selection safely (\(onScreen.count)/\(wanted.count) toggled). Nothing was removed — please try again.")
@@ -108,6 +117,35 @@ final class MoInteractiveRunner: ObservableObject {
         }
     }
 
+    /// After the first Enter, Mole shows a SECOND screen — "Selected paths …
+    /// Remove N artifact, X  Enter confirm, ESC cancel". Wait for it, verify
+    /// the count matches what we picked, then send the final Enter to actually
+    /// remove. Wrong count or no screen → ESC + quit, remove nothing. (Without
+    /// this, the first Enter just lands on that prompt and the run hangs.)
+    private func awaitFinalConfirm(attempt: Int) {
+        guard phase == .applying, pressedProceed, !confirmed else { return }
+        let txt = MoTUI.stripANSI(confirmScreen)
+        if txt.localizedCaseInsensitiveContains("esc cancel") || txt.contains("Selected paths") {
+            if let n = MoTUI.removalCount(txt), n == wantedCount {
+                confirmed = true
+                pty.send([0x0d])              // second Enter → execute the removal
+            } else {
+                pty.send([0x1b])              // ESC → back out
+                pty.send(MoTUI.quit)
+                phase = .failed("Mole's confirmation didn't match the \(wantedCount) item\(wantedCount == 1 ? "" : "s") picked. Nothing was removed.")
+            }
+            return
+        }
+        guard attempt < 20 else {            // ~3s waiting for the confirm screen
+            pty.send([0x1b]); pty.send(MoTUI.quit)
+            phase = .failed("Couldn't reach Mole's confirmation screen. Nothing was removed — please try again.")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.awaitFinalConfirm(attempt: attempt + 1)
+        }
+    }
+
     func cancel() {
         pty.master?.readabilityHandler = nil
         pty.send(MoTUI.quit)
@@ -117,6 +155,7 @@ final class MoInteractiveRunner: ObservableObject {
 
     private func ingest(_ s: String) {
         if confirmed { result += s; return }
+        if pressedProceed { confirmScreen += s; return }   // Mole's "Remove N?" screen
         screen += s
         if !listReady, screen.contains("Enter"), screen.contains("Confirm") {
             let parsed = MoTUI.parse(screen)
@@ -132,9 +171,15 @@ final class MoInteractiveRunner: ObservableObject {
     private func handleExit() {
         pty.master?.readabilityHandler = nil
         let status = pty.terminationStatus
-        if confirmed {
-            resultText = MoTUI.stripANSI(result).trimmingCharacters(in: .whitespacesAndNewlines)
-            if resultText.isEmpty { resultText = "Done — selected installers moved out by Mole." }
+        // Never override a failure/cancel we already decided on.
+        if case .failed = phase { return }
+        if case .done = phase { return }
+        if confirmed || pressedProceed {
+            // confirmed → `result` holds the removal log; if Mole exited right
+            // after the first Enter (no second screen), fall back to what we saw.
+            let raw = result.isEmpty ? confirmScreen : result
+            resultText = MoTUI.stripANSI(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            if resultText.isEmpty { resultText = "Done." }
             phase = .done(status)
         } else if !listReady {
             // Exited before a list rendered — usually "nothing to remove".
@@ -181,7 +226,8 @@ struct MoInteractiveView: View {
     private let cfg: MoInteractiveConfig
     var isActive: Bool = true
     @State private var selected: Set<Int> = []
-    @State private var started = false
+    @State private var scanRequested = false
+    @State private var showFDAGate = false
 
     init(_ cfg: MoInteractiveConfig, isActive: Bool = true) {
         self.cfg = cfg
@@ -195,26 +241,55 @@ struct MoInteractiveView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { if isActive { startOnce() } }
-        .onChange(of: isActive) { _, now in if now { startOnce() } }
     }
-    private func startOnce() { guard !started else { return }; started = true; runner.start() }
+
+    /// Run the scan only on an explicit tap — and dodge the macOS permission
+    /// flood by gating on Full Disk Access first (the scan walks Downloads/
+    /// Desktop/project dirs, which prompt once per protected folder without it).
+    private func beginScan(force: Bool) {
+        if force || Privacy.hasFullDiskAccess() {
+            showFDAGate = false
+            scanRequested = true
+            runner.start()
+        } else {
+            showFDAGate = true
+        }
+    }
 
     @ViewBuilder
     private var content: some View {
-        switch runner.phase {
-        case .scanning:
-            centered { ProgressView(cfg.scanningText).controlSize(.large)
-                .tint(cfg.tool.accent).font(Brand.mono(11)) }
-        case .choosing:
-            chooser
-        case .applying:
-            centered { ProgressView("Removing…").controlSize(.large)
-                .tint(cfg.tool.accent).font(Brand.mono(11)) }
-        case .done(let code):
-            doneView(code)
-        case .failed(let m):
-            messageView(icon: "exclamationmark.triangle", color: Brand.orange, text: m)
+        if !scanRequested {
+            if showFDAGate {
+                VStack(spacing: 16) {
+                    Spacer()
+                    FullDiskAccessNotice(accent: cfg.tool.accent,
+                                         continueLabel: "Scan anyway",
+                                         onContinue: { beginScan(force: true) })
+                        .frame(maxWidth: 460)
+                    Spacer(); Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 24)
+            } else {
+                ToolHero(tool: cfg.tool, title: cfg.tool.title, subtitle: cfg.tool.tagline) {
+                    PillButton(title: "Scan") { beginScan(force: false) }
+                }
+            }
+        } else {
+            switch runner.phase {
+            case .scanning:
+                centered { ProgressView(cfg.scanningText).controlSize(.large)
+                    .tint(cfg.tool.accent).font(Brand.mono(11)) }
+            case .choosing:
+                chooser
+            case .applying:
+                centered { ProgressView("Removing…").controlSize(.large)
+                    .tint(cfg.tool.accent).font(Brand.mono(11)) }
+            case .done(let code):
+                doneView(code)
+            case .failed(let m):
+                messageView(icon: "exclamationmark.triangle", color: Brand.orange, text: m)
+            }
         }
     }
 

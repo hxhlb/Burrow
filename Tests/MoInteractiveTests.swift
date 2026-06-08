@@ -98,4 +98,17 @@ final class MoInteractiveTests: XCTestCase {
         XCTAssertEqual(MoTUI.totalCount(purgeFrame), 53, "the M in [n/M]")
         XCTAssertNil(MoTUI.totalCount(frame), "installer frame has no [n/M] header")
     }
+
+    // Mole's SECOND (final) confirm screen, captured from a real `mo purge`.
+    private let confirmScreen = """
+    Selected paths:
+      ~/Desktop/Wisp/.build
+    \u{27A4} Remove 1 artifact, 2.67GB  Enter confirm, ESC cancel:
+    """
+
+    func testRemovalCount_parsesFinalConfirm() {
+        XCTAssertEqual(MoTUI.removalCount(confirmScreen), 1)
+        XCTAssertEqual(MoTUI.removalCount("➤ Remove 12 artifacts, 4.1GB  Enter confirm, ESC cancel:"), 12)
+        XCTAssertNil(MoTUI.removalCount(frame), "the selection list is not a final-confirm screen")
+    }
 }
