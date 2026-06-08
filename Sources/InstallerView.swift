@@ -37,25 +37,16 @@ final class MoInteractiveRunner: ObservableObject {
     private var pressedProceed = false   // first Enter sent → capturing Mole's "Remove N?" screen
     private var confirmScreen = ""       // output between the first and second Enter
     private var wantedCount = 0          // how many we intend to remove (verified on the confirm screen)
-    private var elevated = false         // running mo as root (bypasses TCC → no permission flood)
 
     init(subcommand: String, title: String) { self.subcommand = subcommand; self.title = title }
 
-    /// A distinctive sudo prompt string we can recognise in the PTY. If we see
-    /// it, sudo has fallen through to a tty PASSWORD prompt — i.e. Touch ID for
-    /// sudo isn't set up. We never answer it (Burrow must not render a password
-    /// box); we bail and point the user at Full Disk Access instead.
-    private static let sudoPrompt = "BURROW-NEEDS-SUDO-AUTH"
-
-    /// (Re)start the scan from a clean slate. When `elevated`, run `mo` as root
-    /// via `sudo` — root bypasses TCC, so it scans Downloads/Desktop/project
-    /// dirs WITHOUT the per-folder permission flood. `--preserve-env=HOME` keeps
-    /// your home (not root's) so mo scans the right directories. Auth is the
-    /// NATIVE sudo flow only: Touch ID for sudo shows Apple's own sheet (with
-    /// its own password field). Burrow never renders a password prompt.
-    func start(elevated: Bool = false) {
+    /// (Re)start the scan from a clean slate by driving `mo <subcommand>` in a
+    /// pseudo-terminal. Run as the user (never elevated): for Downloads/Desktop/
+    /// project folders TCC is keyed on the app, not the uid, so root wouldn't
+    /// dodge the prompts anyway — Full Disk Access is the real fix, gated by the
+    /// view before we get here.
+    func start() {
         guard let mo = MoleCLI.findExecutable() else { phase = .failed("mo not found"); return }
-        self.elevated = elevated
         // Fresh state for every (re)scan.
         pty.master?.readabilityHandler = nil
         pty.terminate()
@@ -65,15 +56,8 @@ final class MoInteractiveRunner: ObservableObject {
         items = []; resultText = ""; totalCount = 0; wantedCount = 0
         phase = .scanning
         pty.onExit = { [weak self] in Task { @MainActor in self?.handleExit() } }
-        do {
-            if elevated {
-                try pty.launch("/usr/bin/sudo",
-                               ["-p", Self.sudoPrompt, "--preserve-env=HOME", mo, subcommand],
-                               env: ["HOME": NSHomeDirectory()])
-            } else {
-                try pty.launch(mo, [subcommand])
-            }
-        } catch { phase = .failed("Couldn't start `mo \(subcommand)`."); return }
+        do { try pty.launch(mo, [subcommand]) }
+        catch { phase = .failed("Couldn't start `mo \(subcommand)`."); return }
         pty.master?.readabilityHandler = { [weak self] h in
             let d = h.availableData
             guard !d.isEmpty, let s = String(data: d, encoding: .utf8) else { return }
@@ -81,7 +65,7 @@ final class MoInteractiveRunner: ObservableObject {
         }
     }
 
-    func rescan() { start(elevated: elevated) }
+    func rescan() { start() }
 
     /// Apply selection: toggle the wanted rows, then poll the screen until the
     /// redraw settles and confirm ONLY if the checked rows match the wanted
@@ -181,14 +165,6 @@ final class MoInteractiveRunner: ObservableObject {
         if confirmed { result += s; return }
         if pressedProceed { confirmScreen += s; return }   // Mole's "Remove N?" screen
         screen += s
-        // Elevated run fell through to a tty PASSWORD prompt → Touch ID for sudo
-        // isn't configured. Never answer it with our own box — bail with guidance.
-        if elevated, !listReady, screen.contains(Self.sudoPrompt) {
-            pty.master?.readabilityHandler = nil
-            pty.terminate()
-            phase = .failed("\u{201C}Scan with admin\u{201D} uses Touch ID for sudo, which isn't set up. Enable it in Settings → Touch ID for sudo, or use \u{201C}Open Full Disk Access settings\u{201D} to scan without admin (one grant, no password). Nothing was scanned.")
-            return
-        }
         if !listReady, screen.contains("Enter"), screen.contains("Confirm") {
             let parsed = MoTUI.parse(screen)
             if !parsed.items.isEmpty {
@@ -214,13 +190,8 @@ final class MoInteractiveRunner: ObservableObject {
             if resultText.isEmpty { resultText = "Done — mo finished." }
             phase = .done(status)
         } else if !listReady {
-            // Exited before a list rendered. For an elevated run a non-zero
-            // exit means the admin auth was cancelled/failed, not "empty".
-            if elevated && status != 0 {
-                phase = .failed("Couldn't get administrator access — nothing was scanned.")
-            } else {
-                phase = .done(status)   // usually "nothing to remove"
-            }
+            // Exited before a list rendered — usually "nothing to remove".
+            phase = .done(status)
         }
         // listReady && !confirmed → we're already in .failed; leave it.
     }
@@ -281,16 +252,17 @@ struct MoInteractiveView: View {
     }
 
     /// Scan only on an explicit tap. With Full Disk Access we scan directly;
-    /// without it the SAME gate Clean/Optimize use offers "Scan with admin"
-    /// (run mo as root → bypasses TCC → no permission flood).
+    /// without it, the gate explains it (the ONLY way to scan Downloads/Desktop/
+    /// project dirs without a per-folder prompt — root wouldn't help, since TCC
+    /// is keyed on the app, not the uid).
     private func onScanTapped() {
-        if Privacy.hasFullDiskAccess() { startScan(elevated: false) }
+        if Privacy.hasFullDiskAccess() { startScan() }
         else { showFDAGate = true }
     }
-    private func startScan(elevated: Bool) {
+    private func startScan() {
         showFDAGate = false
         scanRequested = true
-        runner.start(elevated: elevated)
+        runner.start()
     }
     /// Return to the tool's hero (same "Back" semantics as Clean/Optimize).
     private func backToHero() {
@@ -306,9 +278,8 @@ struct MoInteractiveView: View {
             if showFDAGate {
                 FullDiskAccessRequired(
                     accent: cfg.tool.accent,
-                    onRecheck: { if Privacy.hasFullDiskAccess() { startScan(elevated: false) } },
-                    onRunAnyway: { startScan(elevated: true) },   // "Scan with admin" → root, no flood
-                    onCancel: { showFDAGate = false })
+                    onRecheck: { if Privacy.hasFullDiskAccess() { startScan() } },
+                    onCancel: { showFDAGate = false })   // no "Scan with admin": root can't dodge TCC here
             } else {
                 ToolHero(tool: cfg.tool, title: cfg.tool.title, subtitle: cfg.tool.tagline) {
                     PillButton(title: "Scan") { onScanTapped() }
