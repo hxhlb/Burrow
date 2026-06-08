@@ -268,29 +268,9 @@ final class SoftwareModel: ObservableObject {
     }
 
     private static func fetch() -> [InstalledApp] {
-        // `mo uninstall --list` computes a size for every installed app,
-        // which can take a while on a full /Applications — give it room.
-        guard let res = try? MoleCLI.run(args: ["uninstall", "--list"], timeout: 180),
-              res.exitCode == 0,
-              let data = res.stdout.data(using: .utf8),
-              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            return []
-        }
-        return arr.compactMap { d in
-            guard let name = d["name"] as? String,
-                  let path = d["path"] as? String else { return nil }
-            let sizeStr = d["size"] as? String ?? "--"
-            return InstalledApp(
-                id: (d["bundle_id"] as? String).map { $0 + "|" + path } ?? path,
-                name: name,
-                bundleId: d["bundle_id"] as? String ?? "",
-                source: d["source"] as? String ?? "App",
-                uninstallName: d["uninstall_name"] as? String ?? name,
-                path: path,
-                sizeStr: sizeStr,
-                sizeBytes: parseSize(sizeStr),
-                lastUsed: nil)   // computed lazily, only when sorting by Recent
-        }
+        // `mo uninstall --list` computes a size for every installed app, which can
+        // take a while on a full /Applications — the client gives it room.
+        MoleClient.listApps()
     }
 
     /// Best-effort "last used" from the filesystem (access date, falling back to
@@ -304,18 +284,6 @@ final class SoftwareModel: ObservableObject {
             return vals.contentAccessDate ?? vals.contentModificationDate
         }
         return nil
-    }
-
-    static func parseSize(_ s: String) -> Int64 {
-        let t = s.trimmingCharacters(in: .whitespaces).uppercased()
-        if t == "--" || t.isEmpty { return 0 }
-        let units: [(String, Double)] = [("TB", 1_099_511_627_776), ("GB", 1_073_741_824),
-                                         ("MB", 1_048_576), ("KB", 1024), ("B", 1)]
-        for (u, mult) in units where t.hasSuffix(u) {
-            let num = Double(t.dropLast(u.count).trimmingCharacters(in: .whitespaces)) ?? 0
-            return Int64(num * mult)
-        }
-        return Int64(Double(t) ?? 0)
     }
 
     /// Confirm, then run `mo uninstall <names>` (Trash-based). User action

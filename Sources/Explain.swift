@@ -43,9 +43,8 @@ struct ExplainContext {
 
     /// Build from the most recent snapshot in the DB, or nil if none yet.
     static func build(db: DB) -> ExplainContext? {
-        guard let row = db.findLatest(prefix: Sampler.snapshotPrefix),
-              let data = row.json.data(using: .utf8),
-              let s = try? JSONDecoder().decode(MoleStatus.self, from: data) else { return nil }
+        guard let stored = SnapshotStore.latest(db) else { return nil }
+        let s = stored.status
         let now = Int(Date().timeIntervalSince1970)
         let top = (s.topProcesses ?? []).sorted { $0.cpu > $1.cpu }.prefix(5)
             .map { (name: $0.name, cpu: $0.cpu, mem: $0.memory) }
@@ -57,7 +56,7 @@ struct ExplainContext {
             memPressure: s.memory.pressure,
             diskUsedPercent: s.disks.first?.usedPercent,
             topProcesses: Array(top),
-            ageSeconds: max(0, now - row.ts))
+            ageSeconds: max(0, now - stored.ts))
     }
 
     /// Human-readable fact block for the prompt body.

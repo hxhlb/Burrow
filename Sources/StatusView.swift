@@ -584,13 +584,9 @@ final class StatusModel: ObservableObject {
     private func refreshHistory() {
         let now = Int(Date().timeIntervalSince1970)
         let since = now - 30 * 60
-        let rows = db.findRangeSampled(prefix: Sampler.snapshotPrefix,
-                                       since: since, until: now, maxPoints: 40)
         var cpu: [Double] = [], mem: [Double] = [], gpu: [Double] = [], net: [Double] = []
-        let dec = JSONDecoder()
-        for r in rows {
-            guard let data = r.json.data(using: .utf8),
-                  let s = try? dec.decode(MoleStatus.self, from: data) else { continue }
+        for stored in SnapshotStore.range(db, since: since, until: now, maxPoints: 40) {
+            let s = stored.status
             cpu.append(s.cpu.usage)
             mem.append(s.memory.usedPercent)
             gpu.append(max(0, s.gpu?.first?.usage ?? 0))

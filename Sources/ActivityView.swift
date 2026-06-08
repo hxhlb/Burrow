@@ -128,7 +128,7 @@ final class ActivityModel: ObservableObject {
     func reload() {
         loading = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let parsed = MoleHistory.load()
+            let parsed = MoleClient.history()
             Task { @MainActor in
                 self.sessions = parsed
                 self.loading = false

@@ -118,21 +118,16 @@ private enum HistoryLoader {
         snap.windowSince = Date(timeIntervalSince1970: TimeInterval(since))
         snap.windowUntil = Date(timeIntervalSince1970: TimeInterval(now))
 
-        let rows = db.findRangeSampled(prefix: Sampler.snapshotPrefix,
-                                       since: since, until: now,
-                                       maxPoints: 720)
-        snap.rowCount = rows.count
+        let snaps = SnapshotStore.range(db, since: since, until: now, maxPoints: 720)
+        snap.rowCount = snaps.count
 
-        let dec = JSONDecoder()
         var peakCPU: [String: Double] = [:]
         var peakMem: [String: Double] = [:]
         var peakMemBytes: [String: UInt64] = [:]
 
-        for row in rows {
-            guard let data = row.json.data(using: .utf8) else { continue }
-            guard let s = try? dec.decode(MoleStatus.self, from: data) else { continue }
-
-            let t = Date(timeIntervalSince1970: TimeInterval(row.ts))
+        for stored in snaps {
+            let s = stored.status
+            let t = Date(timeIntervalSince1970: TimeInterval(stored.ts))
             snap.cpuUsage.append(.init(time: t, value: s.cpu.usage))
             snap.cpuLoad1.append(.init(time: t, value: s.cpu.load1))
             snap.memoryUsed.append(.init(time: t, value: s.memory.usedPercent))
@@ -174,7 +169,7 @@ private enum HistoryLoader {
         snap.topProcesses = rows2.sorted { $0.peakCPU > $1.peakCPU }
 
         snap.generatedAt = Date()
-        if let latest = rows.last { snap.staleSeconds = max(0, now - latest.ts) }
+        if let latest = snaps.last { snap.staleSeconds = max(0, now - latest.ts) }
         return snap
     }
 }

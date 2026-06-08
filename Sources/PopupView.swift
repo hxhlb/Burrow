@@ -462,13 +462,9 @@ final class HUDModel: ObservableObject {
 
     private func refreshHistory() {
         let now = Int(Date().timeIntervalSince1970)
-        let rows = db.findRangeSampled(prefix: Sampler.snapshotPrefix,
-                                       since: now - 30 * 60, until: now, maxPoints: 30)
         var cpu: [Double] = [], mem: [Double] = [], net: [Double] = [], gpu: [Double] = []
-        let dec = JSONDecoder()
-        for r in rows {
-            guard let data = r.json.data(using: .utf8),
-                  let s = try? dec.decode(MoleStatus.self, from: data) else { continue }
+        for stored in SnapshotStore.range(db, since: now - 30 * 60, until: now, maxPoints: 30) {
+            let s = stored.status
             cpu.append(s.cpu.usage)
             mem.append(s.memory.usedPercent)
             net.append(s.network.reduce(0.0) { $0 + $1.rxRateMbs + $1.txRateMbs })

@@ -448,16 +448,10 @@ struct ToolCatalog {
         let since = now - minutes * 60
         // 720 sampled rows over the window is the same budget the
         // HistoryView uses — enough to catch any process that peaked.
-        let rows = self.db.findRangeSampled(prefix: Sampler.snapshotPrefix,
-                                            since: since, until: now,
-                                            maxPoints: 720)
         var peakCPU: [String: Double] = [:]
         var peakMem: [String: Double] = [:]
-        let dec = JSONDecoder()
-        for r in rows {
-            guard let data = r.json.data(using: .utf8) else { continue }
-            guard let s = try? dec.decode(MoleStatus.self, from: data) else { continue }
-            for p in (s.topProcesses ?? []) {
+        for stored in SnapshotStore.range(self.db, since: since, until: now, maxPoints: 720) {
+            for p in (stored.status.topProcesses ?? []) {
                 if p.cpu > (peakCPU[p.name] ?? 0)    { peakCPU[p.name] = p.cpu }
                 if p.memory > (peakMem[p.name] ?? 0) { peakMem[p.name] = p.memory }
             }
@@ -492,22 +486,19 @@ struct ToolCatalog {
 
         let now = Int(Date().timeIntervalSince1970)
         let since = now - minutes * 60
-        let rows = self.db.findRangeSampled(prefix: Sampler.snapshotPrefix,
-                                            since: since, until: now, maxPoints: 720)
-        // findRangeSampled down-samples wide windows, so each returned row
-        // stands for MORE than one sample period. Estimate CPU-time against
-        // the effective spacing of the rows we actually got — using the raw
-        // sampler cadence would badly under-count over long windows.
-        let interval: Double = rows.count > 1
-            ? Double(max(1, rows[rows.count - 1].ts - rows[0].ts)) / Double(rows.count - 1)
+        let snaps = SnapshotStore.range(self.db, since: since, until: now, maxPoints: 720)
+        // The store down-samples wide windows, so each returned snapshot stands
+        // for MORE than one sample period. Estimate CPU-time against the effective
+        // spacing of the snapshots we actually got — using the raw sampler cadence
+        // would badly under-count over long windows.
+        let interval: Double = snaps.count > 1
+            ? Double(max(1, snaps[snaps.count - 1].ts - snaps[0].ts)) / Double(snaps.count - 1)
             : Double(Store.sampleIntervalSeconds)
 
         struct Agg { var peakCPU = 0.0; var sumCPU = 0.0; var samples = 0; var peakMem = 0.0 }
         var agg: [String: Agg] = [:]
-        let dec = JSONDecoder()
-        for r in rows {
-            guard let data = r.json.data(using: .utf8),
-                  let s = try? dec.decode(MoleStatus.self, from: data) else { continue }
+        for stored in snaps {
+            let s = stored.status
             for p in (s.topProcesses ?? []) {
                 var a = agg[p.name] ?? Agg()
                 a.peakCPU = max(a.peakCPU, p.cpu)
@@ -536,9 +527,9 @@ struct ToolCatalog {
             let cpuTime = (a.sumCPU / 100.0) * interval
             pieces.append("{\"name\":\"\(escaped)\",\"peak_cpu\":\(a.peakCPU),\"avg_cpu\":\(avg),\"est_cpu_time_seconds\":\(cpuTime),\"peak_mem\":\(a.peakMem),\"samples\":\(a.samples)}")
         }
-        let startTS = rows.first?.ts ?? since
-        let endTS = rows.last?.ts ?? now
-        return "{\"metric\":\"\(metric)\",\"window_minutes\":\(minutes),\"start_ts\":\(startTS),\"end_ts\":\(endTS),\"sample_count\":\(rows.count),\"interval_seconds\":\(Int(interval.rounded())),\"processes\":[\(pieces.joined(separator: ","))]}"
+        let startTS = snaps.first?.ts ?? since
+        let endTS = snaps.last?.ts ?? now
+        return "{\"metric\":\"\(metric)\",\"window_minutes\":\(minutes),\"start_ts\":\(startTS),\"end_ts\":\(endTS),\"sample_count\":\(snaps.count),\"interval_seconds\":\(Int(interval.rounded())),\"processes\":[\(pieces.joined(separator: ","))]}"
     }
 
     private func callInfo() -> String {
