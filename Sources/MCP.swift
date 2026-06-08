@@ -251,6 +251,19 @@ struct ToolCatalog {
                 ] as [String: Any],
             ],
             [
+                "name": "burrow_process_usage",
+                "description": "Rank processes over the last `minutes` (default 60) by a chosen `metric`: cpu_time (default; cumulative CPU-seconds = the closest answer to 'what used my computer most'), peak_cpu (highest single-sample CPU%), avg_cpu (mean CPU% while present), or peak_mem (highest memory%). Returns the window it actually used (start_ts/end_ts/sample_count) so the answer isn't ambiguous. NOTE: derived from periodic samples, so cpu_time is an estimate, not the kernel's exact accounting.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "minutes": ["type": "integer", "minimum": 1],
+                        "metric": ["type": "string", "enum": ["cpu_time", "peak_cpu", "avg_cpu", "peak_mem"]],
+                        "limit": ["type": "integer", "minimum": 1, "maximum": 100],
+                    ],
+                    "additionalProperties": false,
+                ] as [String: Any],
+            ],
+            [
                 "name": "burrow_info",
                 "description": "Burrow's own state: list of prefixes with row counts + staleness, current retention setting. Use when diagnosing whether data is flowing.",
                 "inputSchema": [
@@ -270,6 +283,8 @@ struct ToolCatalog {
             return try self.callHistory(arguments)
         case "burrow_top_processes":
             return try self.callTopProcesses(arguments)
+        case "burrow_process_usage":
+            return try self.callProcessUsage(arguments)
         case "burrow_info":
             return self.callInfo()
         default:
@@ -335,6 +350,75 @@ struct ToolCatalog {
             pieces.append("{\"name\":\"\(escaped)\",\"peak_cpu\":\(cpu),\"peak_mem\":\(peakMem[name] ?? 0)}")
         }
         return "{\"window_minutes\":\(minutes),\"processes\":[\(pieces.joined(separator: ","))]}"
+    }
+
+    /// Semantic process ranking. Where `burrow_top_processes` always ranks
+    /// by peak CPU — which crowns a one-second spike — this lets the agent
+    /// pick the metric that matches the question, and echoes the window it
+    /// used so "this week" can't be silently reinterpreted.
+    private func callProcessUsage(_ args: [String: Any]) throws -> String {
+        let minutes = (args["minutes"] as? Int) ?? 60
+        // Upper bound guards against Int overflow in `minutes * 60` below
+        // (~1.9 years is far past any useful window).
+        guard minutes > 0, minutes <= 1_000_000 else {
+            throw MCPToolError.badArguments("minutes must be between 1 and 1000000")
+        }
+        let limit = max(1, min((args["limit"] as? Int) ?? 10, 100))
+        let metric = (args["metric"] as? String) ?? "cpu_time"
+        let allowed = ["cpu_time", "peak_cpu", "avg_cpu", "peak_mem"]
+        guard allowed.contains(metric) else {
+            throw MCPToolError.badArguments("metric must be one of: \(allowed.joined(separator: ", "))")
+        }
+
+        let now = Int(Date().timeIntervalSince1970)
+        let since = now - minutes * 60
+        let rows = self.db.findRangeSampled(prefix: Sampler.snapshotPrefix,
+                                            since: since, until: now, maxPoints: 720)
+        // findRangeSampled down-samples wide windows, so each returned row
+        // stands for MORE than one sample period. Estimate CPU-time against
+        // the effective spacing of the rows we actually got — using the raw
+        // sampler cadence would badly under-count over long windows.
+        let interval: Double = rows.count > 1
+            ? Double(max(1, rows[rows.count - 1].ts - rows[0].ts)) / Double(rows.count - 1)
+            : Double(Store.sampleIntervalSeconds)
+
+        struct Agg { var peakCPU = 0.0; var sumCPU = 0.0; var samples = 0; var peakMem = 0.0 }
+        var agg: [String: Agg] = [:]
+        let dec = JSONDecoder()
+        for r in rows {
+            guard let data = r.json.data(using: .utf8),
+                  let s = try? dec.decode(MoleStatus.self, from: data) else { continue }
+            for p in (s.topProcesses ?? []) {
+                var a = agg[p.name] ?? Agg()
+                a.peakCPU = max(a.peakCPU, p.cpu)
+                a.sumCPU += p.cpu
+                a.samples += 1
+                a.peakMem = max(a.peakMem, p.memory)
+                agg[p.name] = a
+            }
+        }
+
+        func score(_ a: Agg) -> Double {
+            switch metric {
+            case "peak_cpu": return a.peakCPU
+            case "avg_cpu":  return a.samples > 0 ? a.sumCPU / Double(a.samples) : 0
+            case "peak_mem": return a.peakMem
+            default:         return (a.sumCPU / 100.0) * interval   // est. CPU-seconds
+            }
+        }
+
+        let ranked = agg.sorted { score($0.value) > score($1.value) }.prefix(limit)
+        var pieces: [String] = []
+        for (name, a) in ranked {
+            let escaped = name.replacingOccurrences(of: "\\", with: "\\\\")
+                              .replacingOccurrences(of: "\"", with: "\\\"")
+            let avg = a.samples > 0 ? a.sumCPU / Double(a.samples) : 0
+            let cpuTime = (a.sumCPU / 100.0) * interval
+            pieces.append("{\"name\":\"\(escaped)\",\"peak_cpu\":\(a.peakCPU),\"avg_cpu\":\(avg),\"est_cpu_time_seconds\":\(cpuTime),\"peak_mem\":\(a.peakMem),\"samples\":\(a.samples)}")
+        }
+        let startTS = rows.first?.ts ?? since
+        let endTS = rows.last?.ts ?? now
+        return "{\"metric\":\"\(metric)\",\"window_minutes\":\(minutes),\"start_ts\":\(startTS),\"end_ts\":\(endTS),\"sample_count\":\(rows.count),\"interval_seconds\":\(Int(interval.rounded())),\"processes\":[\(pieces.joined(separator: ","))]}"
     }
 
     private func callInfo() -> String {

@@ -20,6 +20,11 @@ cask "burrow" do
 
   app "Burrow.app"
 
+  # PATH shim so coding agents can spawn the MCP server as `burrow mcp`
+  # without hardcoding the .app bundle path. The same binary serves the
+  # GUI (no args) and the stdio MCP server (`mcp` / `--mcp`).
+  binary "#{appdir}/Burrow.app/Contents/MacOS/Burrow", target: "burrow"
+
   # Pre-1.0 builds aren't notarized yet, so clear the quarantine flag to
   # avoid a Gatekeeper block on first launch. Remove this once the app
   # ships signed + notarized.
