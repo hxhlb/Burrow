@@ -139,7 +139,7 @@ final class MCPServer {
                 "capabilities": ["tools": [String: Any]()],
                 "serverInfo": [
                     "name": "burrow",
-                    "version": "0.2.0",
+                    "version": "0.3.0",
                 ],
             ],
         ]
@@ -272,6 +272,28 @@ struct ToolCatalog {
                     "additionalProperties": false,
                 ] as [String: Any],
             ],
+            [
+                "name": "burrow_cleanup_history",
+                "description": "Mole's itemised record of past cleanup activity: each clean/optimize/purge/uninstall session with when it ran, how many items, bytes freed, and an actions breakdown (removed/trashed/skipped/failed). `limit` caps how many recent sessions (default 20, max 200). This is Mole's CLEANUP log — distinct from burrow_history, which is the system-metrics time series. Read-only.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "limit": ["type": "integer", "minimum": 1, "maximum": 200],
+                    ],
+                    "additionalProperties": false,
+                ] as [String: Any],
+            ],
+            [
+                "name": "burrow_deleted_files",
+                "description": "The exact filesystem paths Mole has removed or trashed, newest first, from Mole's deletion log. Each entry has a timestamp, action (trash/remove), category, status (ok/failed), and the absolute path. `limit` caps how many recent paths (default 100, max 5000). Answers 'what exactly did the last cleanup delete?'. Read-only — this reports history, it does not delete anything.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "limit": ["type": "integer", "minimum": 1, "maximum": 5000],
+                    ],
+                    "additionalProperties": false,
+                ] as [String: Any],
+            ],
         ]
     }
 
@@ -287,6 +309,10 @@ struct ToolCatalog {
             return try self.callProcessUsage(arguments)
         case "burrow_info":
             return self.callInfo()
+        case "burrow_cleanup_history":
+            return self.callCleanupHistory(arguments)
+        case "burrow_deleted_files":
+            return self.callDeletedFiles(arguments)
         default:
             throw MCPToolError.unknown(name)
         }
@@ -433,5 +459,75 @@ struct ToolCatalog {
             }
         }
         return "{\"now\":\(now),\"retention_days\":\(Store.retentionDays),\"sample_interval_seconds\":\(Store.sampleIntervalSeconds),\"readers\":[\(pieces.joined(separator: ","))]}"
+    }
+
+    /// Itemised cleanup history (issue #2). Passes through `mo history
+    /// --json` — already the exact shape an agent wants (sessions[] with
+    /// command/time/items/size/actions). We don't reshape it so the
+    /// contract tracks Mole's, not ours. Degrades to a valid empty/error
+    /// object when `mo` isn't installed so the tool never throws.
+    private func callCleanupHistory(_ args: [String: Any]) -> String {
+        let limit = max(1, min((args["limit"] as? Int) ?? 20, 200))
+        guard let res = try? MoleCLI.run(args: ["history", "--json", "--limit", "\(limit)"],
+                                         timeout: 15),
+              res.exitCode == 0 else {
+            return "{\"error\":\"mo history unavailable\",\"sessions\":[]}"
+        }
+        let out = res.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return out.isEmpty ? "{\"sessions\":[]}" : out
+    }
+
+    /// Exact deleted file paths (issue #2). Reads Mole's append-only
+    /// deletion log and returns the most recent `limit` rows, newest
+    /// first. Read-only: this surfaces what Mole already deleted; it
+    /// never removes anything. Graceful when the log is absent.
+    private func callDeletedFiles(_ args: [String: Any]) -> String {
+        let limit = max(1, min((args["limit"] as? Int) ?? 100, 5000))
+        let logPath = Self.deletionsLogPath()
+        let text = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
+        let files = Self.parseDeletionLog(text, limit: limit)
+        let out: [String: Any] = ["count": files.count, "log": logPath, "files": files]
+        if let data = try? JSONSerialization.data(withJSONObject: out,
+                                                  options: [.withoutEscapingSlashes]),
+           let s = String(data: data, encoding: .utf8) {
+            return s
+        }
+        return "{\"count\":0,\"files\":[]}"
+    }
+
+    /// Parse Mole's tab-separated deletion log into newest-first entries.
+    /// Each line is `ts \t action \t category \t status \t path`; the path
+    /// is the remainder so an (unlikely) tab inside it survives. Malformed
+    /// lines are skipped. Pure → unit-tested.
+    static func parseDeletionLog(_ text: String, limit: Int) -> [[String: Any]] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+        var entries: [[String: Any]] = []
+        for line in lines.suffix(max(1, limit)) {
+            let parts = line.split(separator: "\t", maxSplits: 4,
+                                   omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 5 else { continue }
+            entries.append([
+                "ts": parts[0], "action": parts[1], "category": parts[2],
+                "status": parts[3], "path": parts[4],
+            ])
+        }
+        return entries.reversed()
+    }
+
+    /// Resolve Mole's deletion-log path from `mo history --json` (the
+    /// source of truth), falling back to the standard location when `mo`
+    /// isn't reachable.
+    private static func deletionsLogPath() -> String {
+        let fallback = (NSHomeDirectory() as NSString)
+            .appendingPathComponent("Library/Logs/mole/deletions.log")
+        guard let res = try? MoleCLI.run(args: ["history", "--json"], timeout: 10),
+              res.exitCode == 0,
+              let data = res.stdout.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let logs = obj["logs"] as? [String: Any],
+              let p = logs["deletions"] as? String, !p.isEmpty else {
+            return fallback
+        }
+        return p
     }
 }
