@@ -41,15 +41,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var mainWC: NSWindowController?
     fileprivate var pendingInitialPane: Pane = .tool(.status)
 
+    private var installWC: NSWindowController?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
 
+        // No engine yet → guided install instead of a dead-end quit. The
+        // window's Recheck calls startServices() once `mo` is found.
         guard MoleCLI.findExecutable() != nil else {
-            MoleCLI.showMissingAlert()
-            NSApp.terminate(nil)
+            showInstallWindow()
             return
         }
+        startServices()
+    }
 
+    /// Guided onboarding window when `mo` is missing. Stays a regular Dock
+    /// app so the window is reachable; we never run an installer ourselves.
+    private func showInstallWindow() {
+        NSApp.setActivationPolicy(.regular)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isReleasedWhenClosed = false
+        window.center()
+        let view = MoleInstallView(onReady: { [weak self] in
+            self?.installWC?.close()
+            self?.installWC = nil
+            self?.startServices()
+        })
+        window.contentViewController = NSHostingController(rootView: view)
+        let wc = NSWindowController(window: window)
+        self.installWC = wc
+        wc.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The `mo`-dependent startup: open the DB, start the server/sampler/
+    /// maintenance, and install the status item. Called either directly at
+    /// launch or after the guided install finds `mo`.
+    private func startServices() {
         let db: DB
         do {
             db = try DB.openDefault()

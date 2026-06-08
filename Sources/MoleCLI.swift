@@ -51,6 +51,33 @@ enum MoleCLI {
         return nil
     }
 
+    // MARK: - Install / version
+
+    /// Canonical install command (Homebrew). Shown in the guided install
+    /// flow; we never run it for the user.
+    static let installCommand = "brew install mole"
+    /// Where to send users without Homebrew.
+    static let repoURL = URL(string: "https://github.com/tw93/Mole")!
+
+    /// Current `mo` version, or nil if not installed / unparsable.
+    static func version() -> String? {
+        guard let res = try? run(args: ["--version"], timeout: 5) else { return nil }
+        let text = res.stdout.isEmpty ? res.stderr : res.stdout
+        return parseVersion(text)
+    }
+
+    /// Pull a semver out of `mo --version` output, whatever decoration it
+    /// wraps it in ("mole 1.41.0", "v1.41.0", …). Pure → unit-tested.
+    static func parseVersion(_ output: String) -> String? {
+        for token in output.split(whereSeparator: { !($0.isNumber || $0 == ".") }) {
+            let parts = token.split(separator: ".")
+            if parts.count >= 2, parts.allSatisfy({ Int($0) != nil }) {
+                return String(token)
+            }
+        }
+        return nil
+    }
+
     /// Modal alert shown at launch when `mo` isn't installed. We block on
     /// it because there's nothing useful Burrow can do without Mole, and a
     /// background app silently failing is the worst possible UX for this

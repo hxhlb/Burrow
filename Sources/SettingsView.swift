@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     @State private var sampleIntervalSeconds: Int = Store.sampleIntervalSeconds
@@ -18,6 +19,8 @@ struct SettingsView: View {
     @State private var queryServerEnabled: Bool = Store.queryServerEnabled
     @State private var dbSizeText: String = "—"
     @State private var lastMaintenanceText: String = "—"
+    @State private var moleVersion: String = "—"
+    @State private var moleUpdating = false
 
     /// Wired by AppDelegate; the only consumer is "Run maintenance now".
     var onRunMaintenance: (() -> Void)?
@@ -37,6 +40,16 @@ struct SettingsView: View {
                             }
                         }
                         footnote("History lives at ~/Library/Application Support/Burrow/burrow.db. Rows past the retention window are pruned hourly.")
+                    }
+
+                    section("Mole engine", "shippingbox") {
+                        infoRow("Version", moleVersion)
+                        HStack {
+                            Spacer()
+                            if moleUpdating { ProgressView().controlSize(.small).padding(.trailing, 4) }
+                            PillButton(title: moleUpdating ? "Updating…" : "Update Mole", filled: false) { updateMole() }
+                        }
+                        footnote("Runs `mo update` to update the Mole CLI engine Burrow drives. This is separate from Burrow's own app updates. If it needs a password or a confirmation it can't show here, run `mo update` in a terminal instead.")
                     }
 
                     section("History retention", "calendar") {
@@ -68,7 +81,37 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity)
             }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { refreshStatusLabels() }
+        .onAppear { refreshStatusLabels(); loadMoleVersion() }
+    }
+
+    // MARK: - Mole engine
+
+    private func loadMoleVersion() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let v = MoleCLI.version()
+            DispatchQueue.main.async { moleVersion = v.map { "v\($0)" } ?? "not found" }
+        }
+    }
+
+    private func updateMole() {
+        guard !moleUpdating else { return }
+        moleUpdating = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let res = try? MoleCLI.run(args: ["update"], timeout: 600)
+            let newVersion = MoleCLI.version()
+            DispatchQueue.main.async {
+                moleUpdating = false
+                if let v = newVersion { moleVersion = "v\(v)" }
+                let ok = (res?.exitCode ?? 1) == 0
+                let alert = NSAlert()
+                alert.messageText = ok ? "Mole is up to date" : "Update didn't complete"
+                alert.informativeText = ok
+                    ? "Now on \(moleVersion)."
+                    : (res?.stderr.isEmpty == false ? String(res!.stderr.prefix(300))
+                                                    : "`mo update` exited non-zero. Try running it in a terminal.")
+                alert.runModal()
+            }
+        }
     }
 
     // MARK: - Section + row helpers
