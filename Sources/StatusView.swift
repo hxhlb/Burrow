@@ -42,6 +42,9 @@ struct StatusView: View {
                         netTile(s).frame(minHeight: row2H)
                         BatteryCard(s: s, minHeight: row2H)
                     }
+                    if let bt = s.bluetooth?.filter({ $0.connected }), !bt.isEmpty {
+                        BluetoothStrip(devices: bt)
+                    }
                     ProcessCard(model: model)
                 } else {
                     waiting
@@ -334,6 +337,51 @@ struct ProgressBar: View {
             }
         }
         .frame(height: 6)
+    }
+}
+
+// MARK: - Bluetooth
+
+/// Connected Bluetooth devices with their battery — surfaced from mo's
+/// `bluetooth` array (AirPods, mouse, keyboard, controller, …).
+struct BluetoothStrip: View {
+    let devices: [BluetoothDevice]
+
+    var body: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Eyebrow(text: "Bluetooth", glyph: "dot.radiowaves.right", color: Brand.blue)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(devices.enumerated()), id: \.offset) { _, d in chip(d) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func chip(_ d: BluetoothDevice) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: Self.glyph(d.name)).font(.system(size: 12)).foregroundStyle(Brand.textSecondary)
+            Text(d.name).font(Brand.sans(12)).foregroundStyle(Brand.textPrimary).lineLimit(1)
+            if let p = d.batteryPercent {
+                Text("\(p)%").font(Brand.mono(11, .semibold))
+                    .foregroundStyle(p <= 20 ? Brand.red : (p <= 40 ? Brand.gold : Brand.green))
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Capsule().fill(Color.white.opacity(0.05)))
+        .overlay(Capsule().strokeBorder(Brand.hairline, lineWidth: 1))
+    }
+
+    private static func glyph(_ name: String) -> String {
+        let n = name.lowercased()
+        if n.contains("airpod") || n.contains("headphone") || n.contains("buds") || n.contains("momentum") || n.contains("wh-") { return "headphones" }
+        if n.contains("mouse") { return "magicmouse" }
+        if n.contains("keyboard") || n.contains("keychron") { return "keyboard" }
+        if n.contains("controller") || n.contains("dualsense") || n.contains("xbox") { return "gamecontroller" }
+        if n.contains("trackpad") { return "trackpad" }
+        return "dot.radiowaves.right"
     }
 }
 
