@@ -141,7 +141,9 @@ private enum HistoryLoader {
                 if thermal.cpuTemp > 0 { snap.thermalCPU.append(.init(time: t, value: thermal.cpuTemp)) }
                 if thermal.gpuTemp > 0 { snap.thermalGPU.append(.init(time: t, value: thermal.gpuTemp)) }
                 if let bt = thermal.batteryTemp, bt > 0 { snap.thermalBattery.append(.init(time: t, value: bt)) }
-                if thermal.fanSpeed > 0 { snap.fanSpeed.append(.init(time: t, value: Double(thermal.fanSpeed))) }
+                // Plot fan RPM whenever fans are detected — including 0 (parked),
+                // so an idle Mac shows a flat line, not "no samples".
+                if (thermal.fanCount ?? 0) > 0 { snap.fanSpeed.append(.init(time: t, value: Double(thermal.fanSpeed))) }
                 snap.fanCount = max(snap.fanCount, thermal.fanCount ?? 0)
             }
             if let b = s.batteries?.first { snap.batteryPercent.append(.init(time: t, value: b.percent)) }
