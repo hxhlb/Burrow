@@ -62,7 +62,7 @@ struct ExplainContext {
             .map { (name: $0.name, cpu: $0.cpu, mem: $0.memory) }
 
         let windowMin = 60
-        let rows = MetricsStore(db: db).snapshots(.init(since: now - windowMin * 60, until: now), maxPoints: 240)
+        let rows = MetricsStore(db: db).snapshots(.init(since: now - windowMin * 60, until: now), maxPoints: 240).snapshots
         var cpuVals: [Double] = [], memVals: [Double] = []
         var peakCPU: [String: Double] = [:]
         var firstDisk: Double?, lastDisk: Double?

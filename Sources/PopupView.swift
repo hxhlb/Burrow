@@ -405,7 +405,7 @@ final class HUDModel: ObservableObject {
     private func refreshHistory() {
         let now = Int(Date().timeIntervalSince1970)
         var cpu: [Double] = [], mem: [Double] = [], net: [Double] = [], gpu: [Double] = []
-        for stored in MetricsStore(db: db).snapshots(.init(since: now - 30 * 60, until: now), maxPoints: 30) {
+        for stored in MetricsStore(db: db).snapshots(.init(since: now - 30 * 60, until: now), maxPoints: 30).snapshots {
             let s = stored.status
             cpu.append(s.cpu.usage)
             mem.append(s.memory.usedPercent)

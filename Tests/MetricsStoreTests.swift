@@ -68,7 +68,7 @@ final class MetricsStoreTests: XCTestCase {
         try db.insert(prefix: MetricsStore.snapshotPrefix, ts: 200, json: snapshotJSON(cpu: 80))
         try db.insert(prefix: MetricsStore.snapshotPrefix, ts: 5000, json: snapshotJSON(cpu: 99))
 
-        let snaps = store.snapshots(MetricsStore.Window(since: 0, until: 1000))
+        let snaps = store.snapshots(MetricsStore.Window(since: 0, until: 1000)).snapshots
         XCTAssertEqual(snaps.map(\.ts), [100, 200])
         XCTAssertEqual(snaps.map { Int($0.status.cpu.usage) }, [10, 80])
     }
@@ -76,9 +76,48 @@ final class MetricsStoreTests: XCTestCase {
     func testSnapshots_skipsMalformedRows() throws {
         try db.insert(prefix: MetricsStore.snapshotPrefix, ts: 100, json: "not valid json")
         try db.insert(prefix: MetricsStore.snapshotPrefix, ts: 200, json: snapshotJSON(cpu: 50))
-        let snaps = store.snapshots(MetricsStore.Window(since: 0, until: 1000))
+        let snaps = store.snapshots(MetricsStore.Window(since: 0, until: 1000)).snapshots
         XCTAssertEqual(snaps.count, 1)
         XCTAssertEqual(Int(snaps[0].status.cpu.usage), 50)
+    }
+
+    // MARK: Drift visibility — skipped rows are COUNTED, never silent
+
+    func testSnapshots_countsDroppedRowsAndReportsFirstSkip() throws {
+        try db.insert(prefix: MetricsStore.snapshotPrefix, ts: 100, json: "not valid json")
+        try db.insert(prefix: MetricsStore.snapshotPrefix, ts: 200, json: snapshotJSON(cpu: 50))
+
+        let slice = store.snapshots(MetricsStore.Window(since: 0, until: 1000))
+        XCTAssertEqual(slice.snapshots.count, 1)
+        XCTAssertEqual(slice.droppedRows, 1)
+        let skip = try XCTUnwrap(slice.firstSkip)
+        XCTAssertEqual(skip.kind, .notJSON)
+        XCTAssertEqual(skip.ts, 100)
+        XCTAssertFalse(skip.snippet.isEmpty, "carries a snippet of the offending row")
+    }
+
+    func testSnapshots_driftReportCarriesTheCodingPath() throws {
+        // Valid JSON whose cpu object is missing the required `usage` key —
+        // the schema-drift case the dashboard used to swallow silently.
+        var drifted = snapshotJSON(cpu: 10)
+        drifted = drifted.replacingOccurrences(of: "\"usage\":10.0,", with: "")
+            .replacingOccurrences(of: "\"usage\":10,", with: "")
+        try db.insert(prefix: MetricsStore.snapshotPrefix, ts: 100, json: drifted)
+
+        let slice = store.snapshots(MetricsStore.Window(since: 0, until: 1000))
+        XCTAssertEqual(slice.droppedRows, 1)
+        guard case .missingKey(let key, let path) = slice.firstSkip?.kind else {
+            return XCTFail("expected .missingKey, got \(String(describing: slice.firstSkip?.kind))")
+        }
+        XCTAssertEqual(key, "usage")
+        XCTAssertEqual(path, "cpu")
+    }
+
+    func testSnapshots_cleanWindowReportsZeroDropped() throws {
+        try db.insert(prefix: MetricsStore.snapshotPrefix, ts: 100, json: snapshotJSON(cpu: 10))
+        let slice = store.snapshots(MetricsStore.Window(since: 0, until: 1000))
+        XCTAssertEqual(slice.droppedRows, 0)
+        XCTAssertNil(slice.firstSkip)
     }
 
     func testWindowLastMinutes_computesBounds() {

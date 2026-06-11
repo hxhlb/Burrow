@@ -120,7 +120,7 @@ private enum HistoryLoader {
 
         let store = MetricsStore(db: db)
         let window = MetricsStore.Window(since: since, until: now)
-        let snaps = store.snapshots(window)
+        let snaps = store.snapshots(window).snapshots
         snap.rowCount = snaps.count
 
         for stored in snaps {
