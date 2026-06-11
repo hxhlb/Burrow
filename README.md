@@ -312,7 +312,7 @@ design system); Settings, History, and Activity are panes in that same window.
 - Treemap layout: Bruls, Huijsen & van Wijk (2000), "Squarified Treemaps,"
   re-implemented from scratch in Swift.
 
-  ## What's Next & Contributing
+## What's Next & Contributing
 
 **Continuous Updates & Windows Support:** 
 Burrow is in active development! We will continuously roll out new updates, features, and improvements. We are also actively working on bringing Burrow to **Windows** in the near future!
