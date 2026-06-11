@@ -70,4 +70,55 @@ final class MaintenanceTests: XCTestCase {
         m.runNow()
         XCTAssertGreaterThan(m.lastRunAt!, first, "second run should advance the timestamp")
     }
+
+    // MARK: Retention policy — config, timing, and mechanics meet in ONE value
+
+    func testRetentionPolicy_standardIsTheOneStoreMapping() {
+        Store.d.set(14, forKey: "retention_days")
+        Store.d.set(true, forKey: "auto_vacuum")
+        let p = RetentionPolicy.standard
+        XCTAssertEqual(p.retentionDays, 14)
+        XCTAssertTrue(p.autoVacuum)
+        XCTAssertEqual(p.vacuumThreshold, 1_000)
+    }
+
+    func testRunNow_usesInjectedPolicyAndReports() throws {
+        let now = Int(Date().timeIntervalSince1970)
+        let day = 86_400
+        try db.insert(prefix: "p", ts: now - 5 * day, json: "{}")
+        try db.insert(prefix: "p", ts: now, json: "{}")
+
+        // Store says 7 days (setUp) — the injected policy must win, proving
+        // the tick reads policy through the seam, not UserDefaults directly.
+        let m = Maintenance(db: db, policy: {
+            RetentionPolicy(retentionDays: 3, autoVacuum: false)
+        })
+        let report = m.runNow()
+        XCTAssertEqual(report.deleted, 1)
+        XCTAssertFalse(report.vacuumed)
+        XCTAssertEqual(db.findRange(prefix: "p", since: 0, until: now + 1).count, 1)
+    }
+
+    func testRunNow_vacuumsPastThresholdWhenOptedIn() throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try db.insert(prefix: "p", ts: now - 100 * 86_400, json: "{}")
+        try db.insert(prefix: "p", ts: now - 99 * 86_400, json: "{}")
+
+        let optedOut = Maintenance(db: db, policy: {
+            RetentionPolicy(retentionDays: 1, autoVacuum: false, vacuumThreshold: 1)
+        })
+        // Re-seed after the first run pruned them.
+        let r1 = optedOut.runNow()
+        XCTAssertEqual(r1.deleted, 2)
+        XCTAssertFalse(r1.vacuumed, "vacuum needs the opt-in, not just the threshold")
+
+        try db.insert(prefix: "p", ts: now - 100 * 86_400, json: "{}")
+        try db.insert(prefix: "p", ts: now - 99 * 86_400, json: "{}")
+        let optedIn = Maintenance(db: db, policy: {
+            RetentionPolicy(retentionDays: 1, autoVacuum: true, vacuumThreshold: 1)
+        })
+        let r2 = optedIn.runNow()
+        XCTAssertEqual(r2.deleted, 2)
+        XCTAssertTrue(r2.vacuumed)
+    }
 }

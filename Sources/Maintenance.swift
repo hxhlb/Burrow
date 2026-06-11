@@ -19,9 +19,32 @@
 import Foundation
 import os
 
+/// Every retention knob in one value — THE place config meets mechanics.
+/// `.standard` is the single Store→policy mapping; tests inject literals.
+struct RetentionPolicy: Equatable {
+    var retentionDays: Int
+    var autoVacuum: Bool
+    /// VACUUM only after a prune that deleted more rows than this —
+    /// reclaiming a handful of rows doesn't justify rewriting the file.
+    var vacuumThreshold: Int = 1_000
+
+    static var standard: RetentionPolicy {
+        RetentionPolicy(retentionDays: Store.retentionDays, autoVacuum: Store.autoVacuum)
+    }
+}
+
+/// What one maintenance cycle actually did.
+struct MaintenanceReport: Equatable {
+    var deleted: Int
+    var vacuumed: Bool
+    var finishedAt: Date
+}
+
 final class Maintenance {
     private let db: DB
     private let intervalSeconds: TimeInterval
+    /// Re-read each tick so a Settings change applies within a cycle.
+    private let policy: () -> RetentionPolicy
     private var timer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "dev.caezium.burrow.maintenance", qos: .utility)
 
@@ -40,9 +63,11 @@ final class Maintenance {
     /// retention slider is doing anything useful.
     var lastPruneDeleted: Int { stats.withLock { $0.lastPruneDeleted } }
 
-    init(db: DB, intervalSeconds: TimeInterval = 3600) {
+    init(db: DB, intervalSeconds: TimeInterval = 3600,
+         policy: @escaping () -> RetentionPolicy = { .standard }) {
         self.db = db
         self.intervalSeconds = intervalSeconds
+        self.policy = policy
     }
 
     func start() {
@@ -64,13 +89,15 @@ final class Maintenance {
     /// and the Settings "Run now" button — call OFF the main thread for
     /// UI-triggered runs: an opted-in VACUUM of a large DB blocks for its
     /// full duration.
-    func runNow() {
+    @discardableResult
+    func runNow() -> MaintenanceReport {
         self.queue.sync { self.tick() }
     }
 
-    private func tick() {
-        let retentionDays = Store.retentionDays
-        let cutoff = Int(Date().timeIntervalSince1970) - retentionDays * 86_400
+    @discardableResult
+    private func tick() -> MaintenanceReport {
+        let policy = self.policy()
+        let cutoff = Int(Date().timeIntervalSince1970) - policy.retentionDays * 86_400
 
         var deleted = 0
         do {
@@ -82,12 +109,11 @@ final class Maintenance {
             // never ran.
         }
 
-        // VACUUM only when something was actually deleted AND the user
-        // opted in. Pruning a few stale rows doesn't justify rewriting
-        // the whole DB file every hour.
-        if Store.autoVacuum, deleted > 1_000 {
+        var vacuumed = false
+        if policy.autoVacuum, deleted > policy.vacuumThreshold {
             do {
                 try self.db.vacuum()
+                vacuumed = true
             } catch {
                 NSLog("Burrow.Maintenance: vacuum failed: \(error.localizedDescription)")
             }
@@ -95,5 +121,6 @@ final class Maintenance {
 
         let finished = Date()
         stats.withLock { $0.lastPruneDeleted = deleted; $0.lastRunAt = finished }
+        return MaintenanceReport(deleted: deleted, vacuumed: vacuumed, finishedAt: finished)
     }
 }
