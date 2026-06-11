@@ -21,6 +21,8 @@ a **long-running history** of your Mac's metrics in a local SQLite database,
 an **MCP server** so any AI agent (Claude Code, Cursor, Codex…) can ask
 "what's been happening on this Mac.", and a lot more planned features to come!
 
+`brew install --cask caezium/tap/burrow`
+
 <a href="https://www.star-history.com/?repos=caezium%2FBurrow&type=timeline&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=caezium/Burrow&type=timeline&theme=dark&legend=top-left" />
@@ -28,6 +30,21 @@ an **MCP server** so any AI agent (Claude Code, Cursor, Codex…) can ask
    <img height="350" alt="Star History Chart" src="https://api.star-history.com/chart?repos=caezium/Burrow&type=timeline&legend=top-left" />
  </picture>
 </a>
+
+## Contents
+
+- [Screenshots](#screenshots)
+- [The tools](#the-tools)
+- [How Burrow compares to other tools](#how-burrow-compares-to-other-tools)
+- [Settings](#settings)
+- [Permissions & Full Disk Access](#permissions--full-disk-access)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Security & trust](#security--trust)
+- [Use it with your AI agent](#use-it-with-your-ai-agent)
+- [Develop & test](#develop--test)
+- [Architecture](#architecture)
+- [Attribution & license](#attribution--license)
 
 ## Screenshots
 
