@@ -1,12 +1,13 @@
-name: Deploy landing page to GitHub Pages
+name: Deploy redirect to GitHub Pages
 
-# Publishes the static site in docs/ to GitHub Pages on every push to main.
-# One-time setup: repo Settings → Pages → Source → "GitHub Actions".
+# The site moved to https://burrow.henryzh.dev (Cloudflare Workers; see
+# wrangler.jsonc + deploy-site.yml). This keeps the old GitHub Pages URL
+# alive as a path-preserving redirect so existing links don't break.
 
 on:
   push:
     branches: [main]
-    paths: ['docs/**', '.github/workflows/deploy-pages.yml']
+    paths: ['.github/workflows/deploy-pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -26,16 +27,35 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - name: Build redirect stub
+        run: |
+          mkdir -p stub
+          cat > stub/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <title>Burrow has moved</title>
+          <link rel="canonical" href="https://burrow.henryzh.dev/">
+          <meta http-equiv="refresh" content="0; url=https://burrow.henryzh.dev/">
+          <script>
+            var p = location.pathname.replace(/^\/Burrow/, '');
+            location.replace('https://burrow.henryzh.dev' + p + location.search + location.hash);
+          </script>
+          </head>
+          <body><p>Burrow has moved to <a href="https://burrow.henryzh.dev/">burrow.henryzh.dev</a>.</p></body>
+          </html>
+          EOF
+          cp stub/index.html stub/404.html
+          touch stub/.nojekyll
       # Actions pinned to commit SHAs (not floating tags): a moved tag would
       # otherwise run unreviewed third-party code in a job that holds
       # pages:write + id-token:write. Trailing comment keeps the version legible.
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: docs
-          # v4+ stopped uploading dotfiles by default; keep shipping
-          # docs/.nojekyll so the artifact matches what v3 uploaded.
+          path: stub
+          # v4+ stopped uploading dotfiles by default; keep shipping .nojekyll.
           include-hidden-files: true
       - id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
