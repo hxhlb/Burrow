@@ -88,8 +88,19 @@ final class LiveFeed: ObservableObject {
     @Published private(set) var samples: [Sample] = []
 
     /// Convenience series for sparklines (total rx+tx / read+write).
-    var netHistory: [Double] { samples.map { $0.rxMBs + $0.txMBs } }
     var diskHistory: [Double] { samples.map { $0.readMBs + $0.writeMBs } }
+
+    /// Net sparkline series windowed to the trailing `lastSeconds` of the
+    /// ring, relative to the NEWEST sample (clock-free → unit-testable).
+    /// The Status tile reads ~10 min: rendering the whole 1 h ring there
+    /// flattened current variation into a near-flat line — long-range
+    /// shape belongs to the History tab, which windows the raw samples
+    /// itself.
+    func netHistory(lastSeconds: TimeInterval) -> [Double] {
+        guard let newest = samples.last?.time else { return [] }
+        let cutoff = newest.addingTimeInterval(-lastSeconds)
+        return samples.filter { $0.time >= cutoff }.map { $0.rxMBs + $0.txMBs }
+    }
 
     fileprivate func applySnapshot(_ s: MoleStatus, at: Date) {
         assert(Thread.isMainThread, "LiveFeed must publish on the main thread")

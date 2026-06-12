@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var mainWC: NSWindowController?
 
     private var installWC: NSWindowController?
+    private var onboardingWC: NSWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
@@ -130,6 +131,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         self.setupMainMenu()
 
+        // Crash safety for the Clean review's whitelist session: a fenced
+        // block left by a previous run must never outlive it.
+        DispatchQueue.global(qos: .utility).async { try? MoleWhitelist.live.endSession() }
+
+        // Global shortcuts (recorded in Settings ▸ Menu Bar).
+        HotKeyCenter.shared.handlers[.openBurrow] = { [weak self] in
+            guard #available(macOS 14, *) else { return }
+            if let window = self?.mainWC?.window, window.isVisible, NSApp.isActive {
+                window.performClose(nil)
+            } else {
+                self?.openMainWindow(initial: .home)
+            }
+        }
+        HotKeyCenter.shared.handlers[.keepScreenOn] = {
+            Awake.shared.isActive ? Awake.shared.stop() : Awake.shared.start(.untilOff)
+        }
+        HotKeyCenter.shared.handlers[.cleanScreen] = { CleanScreen.shared.toggle() }
+        HotKeyCenter.shared.applyAll()
+
+        // First run (after the mo gate — MoleInstallView is slide 0): the
+        // two onboarding slides, once. Finishing sets the flag; closing the
+        // window without finishing shows it again next launch. The dev
+        // open-on-launch affordance below bypasses it (BURROW_OPEN_ON_LAUNCH
+        // targets a specific pane; "onboarding" targets these slides).
+        let devLaunchTab = Foundation.ProcessInfo.processInfo.environment["BURROW_OPEN_ON_LAUNCH"]
+        if (devLaunchTab == nil && !Store.onboardingCompleted) || devLaunchTab == "onboarding",
+           #available(macOS 14, *) {
+            self.showOnboardingWindow()
+            return
+        }
+
         // Without the menu-bar icon there's no agent entry point (the app is
         // LSUIElement, so no Dock icon either). Run as a regular Dock app and
         // open the window on launch so it stays reachable (issue #4).
@@ -140,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Dev affordance: launch with BURROW_OPEN_ON_LAUNCH=1 to pop the
         // main window straight away (used for screenshot/verify loops).
-        if let tab = Foundation.ProcessInfo.processInfo.environment["BURROW_OPEN_ON_LAUNCH"],
+        if let tab = devLaunchTab,
            #available(macOS 14, *) {
             let pane: Pane
             if tab == "settings" { pane = .settings }
@@ -151,10 +183,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    /// First-run onboarding window: plain chrome, traffic lights only.
+    /// Finishing marks onboarding complete and opens the main window.
+    @available(macOS 14, *)
+    private func showOnboardingWindow() {
+        // Engine gate, restated at the onboarding door: the launch path
+        // already checks `mo` before startServices(), but onboarding can
+        // also be forced (BURROW_OPEN_ON_LAUNCH=onboarding) and the engine
+        // can vanish between gate and slides. The slides assume a working
+        // engine, so route into the guided install instead — its Recheck
+        // re-enters startServices() and lands back here.
+        guard MoleCLI.findExecutable() != nil else {
+            showInstallWindow()
+            return
+        }
+        NSApp.setActivationPolicy(.regular)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 560),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.center()
+        let view = OnboardingView(onFinish: { [weak self] in
+            Store.onboardingCompleted = true
+            Telemetry.capture("onboarding_completed")
+            self?.onboardingWC?.close()
+            self?.onboardingWC = nil
+            self?.openMainWindow(initial: .home)
+        })
+        window.contentViewController = NSHostingController(rootView: view)
+        let wc = NSWindowController(window: window)
+        self.onboardingWC = wc
+        wc.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         self.producer?.stop()
         self.queryServer?.stop()
         self.maintenance?.stop()
+        Awake.shared.stop()
+        CleanScreen.shared.hide()
         Telemetry.capture("app_terminated")
         Telemetry.flush()
         // Final flush so any just-changed setting survives an app replacement
@@ -233,8 +307,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // the actual entry point — keyed off what we installed at launch,
         // not the live Store value (which a mid-session toggle could change
         // before a relaunch, stranding the app). With no status item, keep
-        // the Dock icon so the app stays reachable (issue #4).
-        if statusBar != nil {
+        // the Dock icon so the app stays reachable (issue #4). "Hide Dock
+        // Icon" off (Settings ▸ General) keeps the Dock presence too.
+        if statusBar != nil, Store.hideDockIcon {
             NSApp.setActivationPolicy(.accessory)
         }
         // No live chart on screen → drop back to the idle sample cadence,
@@ -274,6 +349,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if show {
             if statusBar == nil {
                 statusBar = StatusBarController(db: db, producer: producer, delegate: self)
+            } else {
+                statusBar?.applyDisplayMode()   // Icon ↔ Metrics flip
             }
         } else {
             statusBar = nil   // StatusBarController.deinit removes the item
@@ -300,8 +377,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mainMenu.addItem(appItem)
         let appMenu = NSMenu()
         appItem.submenu = appMenu
-        appMenu.addItem(withTitle: NSLocalizedString("About Burrow", comment: ""),
-                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let about = NSMenuItem(title: NSLocalizedString("About Burrow", comment: ""),
+                               action: #selector(showAboutFromMenu), keyEquivalent: "")
+        about.target = self
+        appMenu.addItem(about)
+        let updates = NSMenuItem(title: NSLocalizedString("Check for Updates…", comment: ""),
+                                 action: #selector(checkForUpdatesFromMenu), keyEquivalent: "")
+        updates.target = self
+        appMenu.addItem(updates)
         appMenu.addItem(.separator())
         let settings = NSMenuItem(title: NSLocalizedString("Settings…", comment: ""),
                                   action: #selector(openSettingsFromMenu), keyEquivalent: ",")
@@ -338,5 +421,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func openSettingsFromMenu() {
         if #available(macOS 14, *) { openMainWindow(initial: .settings) }
+    }
+
+    @objc private func showAboutFromMenu() { showAboutPanel() }
+    @objc private func checkForUpdatesFromMenu() { UpdateCheck.checkNow() }
+
+    // MARK: - About
+
+    /// Standard About panel, with the engine version and the links that
+    /// matter (repo, releases, telemetry disclosure) in the credits.
+    func showAboutPanel() {
+        let credits = NSMutableAttributedString()
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        func line(_ text: String, link: String? = nil) {
+            let attrs: [NSAttributedString.Key: Any] = link.map {
+                [.link: URL(string: $0)!,
+                 .font: NSFont.systemFont(ofSize: 11), .paragraphStyle: para]
+            } ?? [.font: NSFont.systemFont(ofSize: 11),
+                  .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: para]
+            credits.append(NSAttributedString(string: text + "\n", attributes: attrs))
+        }
+        line(String(format: NSLocalizedString("Mole engine %@", comment: ""),
+                    MoleCLI.version().map { "v\($0)" } ?? NSLocalizedString("not found", comment: "")))
+        line(NSLocalizedString("Source on GitHub", comment: ""), link: "https://github.com/caezium/Burrow")
+        line(NSLocalizedString("Releases", comment: ""), link: "https://github.com/caezium/Burrow/releases")
+        line(NSLocalizedString("What telemetry is collected", comment: ""),
+             link: "https://github.com/caezium/Burrow/blob/main/TELEMETRY.md")
+        line(NSLocalizedString("Licenses", comment: ""),
+             link: "https://github.com/caezium/Burrow/blob/main/LICENSE")
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }

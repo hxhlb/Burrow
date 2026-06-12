@@ -15,58 +15,23 @@ import AppKit
 struct AnalyzeView: View {
     @StateObject private var model = AnalyzeModel()
     var isActive: Bool = true
-    @State private var showFDAGate = false
 
     var body: some View {
-        Group {
-            if showFDAGate {
-                fdaGate
-            } else {
-                HStack(spacing: 0) {
-                    sidebar.frame(width: 232)
-                    Rectangle().fill(Brand.hairline).frame(width: 1)
-                    mainArea
-                }
-            }
+        HStack(spacing: 0) {
+            sidebar.frame(width: 232)
+            Rectangle().fill(Brand.hairline).frame(width: 1)
+            mainArea
         }
+        // The blocking FDA card that used to cover this pane is demoted to
+        // RootView's ambient AccessBanner (issue #3 → design 1.3): the scan
+        // starts right away, the banner explains what a missing grant costs.
         .onAppear { evaluateStart() }
         .onChange(of: isActive) { _, now in if now { evaluateStart() } }
     }
 
-    /// Analyze auto-scans the home folder on first open — exactly when
-    /// the macOS "access data from other apps" flood hits (issue #3). If
-    /// we lack Full Disk Access and the user hasn't dismissed the notice,
-    /// gate the scan behind it rather than walking protected dirs
-    /// unannounced.
     private func evaluateStart() {
         guard isActive, !model.started else { return }
-        if Privacy.shouldOfferFullDiskAccessNow() {
-            showFDAGate = true
-        } else {
-            // FDA may have just been granted (or the notice dismissed) while
-            // the gate was up — make sure it doesn't keep covering the view.
-            showFDAGate = false
-            model.startIfNeeded()
-        }
-    }
-
-    private var fdaGate: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            FullDiskAccessNotice(
-                accent: Tool.analyze.accent,
-                continueLabel: "Scan anyway",
-                onContinue: { showFDAGate = false; model.startIfNeeded() },
-                onDontAskAgain: {
-                    Store.fullDiskAccessNoticeDismissed = true
-                    showFDAGate = false
-                    model.startIfNeeded()
-                })
-            .frame(maxWidth: 460)
-            Spacer(); Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 24)
+        model.startIfNeeded()
     }
 
     // MARK: Sidebar
@@ -133,8 +98,7 @@ struct AnalyzeView: View {
             Rectangle().fill(Brand.hairline).frame(height: 1)
             ZStack {
                 if model.loading {
-                    ProgressView("Scanning…").controlSize(.large)
-                        .font(Brand.mono(11)).tint(Tool.analyze.accent)
+                    scanningProgress
                 } else if let err = model.error {
                     VStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle").font(.system(size: 22)).foregroundStyle(Brand.orange)
@@ -150,6 +114,33 @@ struct AnalyzeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(12)
         }
+    }
+
+    /// Live scan progress (design 3.1): the path being measured right
+    /// now, middle-truncated mono, with a true n/total — Burrow drives
+    /// the per-child loop, so the counter is real, never invented.
+    private var scanningProgress: some View {
+        VStack(spacing: 12) {
+            Text("Mapping your folders")
+                .font(Brand.serif(18, .medium)).foregroundStyle(Brand.textPrimary)
+            HStack(spacing: 8) {
+                PulsingDot(color: Tool.analyze.accent)
+                if let p = model.progress {
+                    Text((p.path as NSString).abbreviatingWithTildeInPath)
+                        .font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
+                        .lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: 380)
+                    Text(verbatim: "· \(p.done)/\(p.total)")
+                        .font(Brand.mono(11)).foregroundStyle(Brand.textTertiary)
+                } else {
+                    Text("Measuring…").font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(model.progress.map {
+            String(format: NSLocalizedString("Scanning %@, %d of %d", comment: ""), $0.path, $0.done, $0.total)
+        } ?? NSLocalizedString("Scanning", comment: ""))
     }
 
     private var toolbar: some View {
@@ -305,11 +296,35 @@ enum AnalyzeIcons {
 
 // MARK: - Model
 
+/// Soft-pulsing progress dot; static under Reduce Motion.
+struct PulsingDot: View {
+    let color: Color
+    @State private var pulsing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Circle().fill(color)
+            .frame(width: 7, height: 7)
+            .opacity(reduceMotion ? 1 : (pulsing ? 1 : 0.35))
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.7).repeatForever(autoreverses: true),
+                       value: pulsing)
+            .onAppear { pulsing = true }
+            .accessibilityHidden(true)
+    }
+}
+
 @MainActor
 final class AnalyzeModel: ObservableObject {
+    struct Progress: Equatable {
+        let path: String
+        let done: Int
+        let total: Int
+    }
+
     @Published var entries: [DiskScanEntry] = []
     @Published var crumbs: [(name: String, path: String)] = []
     @Published var loading = false
+    @Published var progress: Progress?
     @Published var error: String?
     private var total: Int64 = 0
     private(set) var started = false
@@ -413,11 +428,24 @@ final class AnalyzeModel: ObservableObject {
             return
         }
         loading = true
+        progress = nil
         error = nil
         OperationCenter.shared.begin(opId, label: String(format: NSLocalizedString("Analyzing %@", comment: ""), name))
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let r = try DiskScanner.scan(path)
+                let r = try Self.scanWithProgress(path) { current, done, total in
+                    Task { @MainActor in
+                        guard gen == self.scanGen else { return }
+                        self.progress = Progress(path: current, done: done, total: total)
+                    }
+                } cacheChild: { childPath, result in
+                    Task { @MainActor in
+                        // Pre-warm drill-down with the per-child walks.
+                        self.cache[childPath] = (result.entries,
+                                                 result.totalSize > 0 ? result.totalSize
+                                                    : result.entries.reduce(0) { $0 + $1.size })
+                    }
+                }
                 let sum = r.totalSize > 0 ? r.totalSize : r.entries.reduce(0) { $0 + $1.size }
                 Task { @MainActor in
                     self.cache[path] = (r.entries, sum)   // cache stays warm either way
@@ -425,6 +453,7 @@ final class AnalyzeModel: ObservableObject {
                     self.entries = r.entries
                     self.total = sum
                     self.loading = false
+                    self.progress = nil
                     OperationCenter.shared.end(self.opId, success: true,
                                                detail: String(format: NSLocalizedString("%d items · %@", comment: ""), r.entries.count, Fmt.bytes(sum)))
                 }
@@ -433,9 +462,56 @@ final class AnalyzeModel: ObservableObject {
                     guard gen == self.scanGen else { return }
                     self.error = error.localizedDescription
                     self.loading = false
+                    self.progress = nil
                     OperationCenter.shared.end(self.opId, success: false, detail: NSLocalizedString("scan failed", comment: ""))
                 }
             }
         }
+    }
+
+    /// True progress (design 3.1): when the target has a modest number
+    /// of children, Burrow walks them itself — one `mo analyze` per
+    /// child directory — so "● ~/Downloads · 3/12" reflects reality and
+    /// every child's walk pre-warms the drill-down cache. Bushier
+    /// targets (drilling into node_modules…) fall back to mole's single
+    /// aggregate call rather than spawning hundreds of processes.
+    nonisolated static func scanWithProgress(
+        _ path: String,
+        onProgress: @escaping (String, Int, Int) -> Void,
+        cacheChild: @escaping (String, DiskScanResult) -> Void
+    ) throws -> DiskScanResult {
+        let fm = FileManager.default
+        guard let childNames = try? fm.contentsOfDirectory(atPath: path),
+              childNames.count > 0, childNames.count <= 40 else {
+            return try DiskScanner.scan(path)
+        }
+
+        var entries: [DiskScanEntry] = []
+        var totalSize: Int64 = 0
+        for (index, name) in childNames.enumerated() {
+            let childPath = (path as NSString).appendingPathComponent(name)
+            onProgress(childPath, index + 1, childNames.count)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: childPath, isDirectory: &isDir) else { continue }
+            if isDir.boolValue {
+                // A child mole can't read (permissions) still gets a row —
+                // size 0 — instead of sinking the whole scan.
+                let result = try? DiskScanner.scan(childPath)
+                let size = result.map { $0.totalSize > 0 ? $0.totalSize : $0.entries.reduce(0) { $0 + $1.size } } ?? 0
+                if let result { cacheChild(childPath, result) }
+                entries.append(DiskScanEntry(id: childPath, name: name, path: childPath,
+                                             size: size, isDir: true, lastAccess: nil))
+                totalSize += size
+            } else {
+                let attrs = try? fm.attributesOfItem(atPath: childPath)
+                let size = (attrs?[.size] as? Int64) ?? Int64((attrs?[.size] as? Int) ?? 0)
+                entries.append(DiskScanEntry(id: childPath, name: name, path: childPath,
+                                             size: size, isDir: false, lastAccess: nil))
+                totalSize += size
+            }
+        }
+        entries.sort { $0.size > $1.size }
+        return DiskScanResult(path: path, totalSize: totalSize,
+                              totalFiles: childNames.count, entries: entries, scannedAt: Date())
     }
 }

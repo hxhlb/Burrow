@@ -201,7 +201,6 @@ struct MoInteractiveView: View {
     var isActive: Bool = true
     @State private var selected: Set<Int> = []
     @State private var scanRequested = false
-    @State private var showFDAGate = false
 
     init(_ cfg: MoInteractiveConfig, isActive: Bool = true) {
         self.cfg = cfg
@@ -217,16 +216,13 @@ struct MoInteractiveView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Scan only on an explicit tap. With Full Disk Access we scan directly;
-    /// without it, the gate explains it (the ONLY way to scan Downloads/Desktop/
-    /// project dirs without a per-folder prompt — root wouldn't help, since TCC
-    /// is keyed on the app, not the uid).
-    private func onScanTapped() {
-        if Privacy.hasFullDiskAccess() { startScan() }
-        else { showFDAGate = true }
-    }
+    /// Scan on tap. The blocking FDA card is demoted to RootView's ambient
+    /// AccessBanner (design 1.3): without the grant, macOS asks per folder
+    /// (Downloads/Desktop/Documents have friendly one-time usage prompts);
+    /// root wouldn't dodge those — TCC keys on the app, not the uid — so
+    /// there is no elevated choice to gate on here.
+    private func onScanTapped() { startScan() }
     private func startScan() {
-        showFDAGate = false
         scanRequested = true
         runner.start()
     }
@@ -235,21 +231,13 @@ struct MoInteractiveView: View {
         runner.cancel()
         selected = []
         scanRequested = false
-        showFDAGate = false
     }
 
     @ViewBuilder
     private var content: some View {
         if !scanRequested {
-            if showFDAGate {
-                FullDiskAccessRequired(
-                    accent: cfg.tool.accent,
-                    onRecheck: { if Privacy.hasFullDiskAccess() { startScan(); return true }; return false },
-                    onCancel: { showFDAGate = false })   // no "Scan with admin": root can't dodge TCC here
-            } else {
-                ToolHero(tool: cfg.tool, title: cfg.tool.title, subtitle: cfg.tool.tagline) {
-                    PillButton(title: "Scan") { onScanTapped() }
-                }
+            ToolHero(tool: cfg.tool, title: cfg.tool.title, subtitle: cfg.tool.tagline) {
+                PillButton(title: "Scan") { onScanTapped() }
             }
         } else {
             switch runner.phase {

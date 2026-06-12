@@ -126,4 +126,45 @@ final class FormatTests: XCTestCase {
         XCTAssertEqual(HealthRating.color(40), Brand.orange)
         XCTAssertEqual(HealthRating.color(39), Brand.red)
     }
+
+    // MARK: Fmt.macOSVersion — exactly one "macOS " prefix
+
+    func testMacOSVersionGoldenValues() {
+        // The engine already prefixes os_version ("macOS 26.5.1"); views
+        // used to prepend their own -> "macOS macOS 26.5.1". Pinned: one
+        // prefix, whatever the engine sends.
+        XCTAssertEqual(Fmt.macOSVersion("macOS 26.5.1"), "macOS 26.5.1")
+        XCTAssertEqual(Fmt.macOSVersion("26.5.1"), "macOS 26.5.1")
+        XCTAssertEqual(Fmt.macOSVersion("  macOS 14.4 "), "macOS 14.4")
+        XCTAssertEqual(Fmt.macOSVersion("MacOS 15"), "macOS 15")
+        XCTAssertEqual(Fmt.macOSVersion("macOS"), "macOS")
+        XCTAssertEqual(Fmt.macOSVersion(""), "")
+        XCTAssertEqual(Fmt.macOSVersion("   "), "")
+    }
+
+    // MARK: PowerAccent — the one battery/fan accent mapping
+
+    func testBatteryAccentMapping() {
+        // red = low (<=20%), green = charging/full/AC, amber = discharging —
+        // shared by the Status card and the HUD (they used to disagree).
+        XCTAssertEqual(PowerAccent.battery(percent: 15, status: "charging"), Brand.red,
+                       "low overrides state")
+        XCTAssertEqual(PowerAccent.battery(percent: 20, status: "discharging"), Brand.red)
+        XCTAssertEqual(PowerAccent.battery(percent: 80, status: "discharging"), Brand.amber)
+        XCTAssertEqual(PowerAccent.battery(percent: 80, status: "Discharging"), Brand.amber)
+        XCTAssertEqual(PowerAccent.battery(percent: 80, status: "charging"), Brand.green)
+        XCTAssertEqual(PowerAccent.battery(percent: 100, status: "charged"), Brand.green)
+        XCTAssertEqual(PowerAccent.battery(percent: 100, status: "full"), Brand.green)
+        XCTAssertEqual(PowerAccent.battery(percent: 90, status: ""), Brand.green,
+                       "unknown state reads as on-power, not as a warning")
+    }
+
+    func testBatteryLevelLadder() {
+        XCTAssertEqual(PowerAccent.level(0), Brand.red)
+        XCTAssertEqual(PowerAccent.level(20), Brand.red)
+        XCTAssertEqual(PowerAccent.level(21), Brand.amber)
+        XCTAssertEqual(PowerAccent.level(40), Brand.amber)
+        XCTAssertEqual(PowerAccent.level(41), Brand.green)
+        XCTAssertEqual(PowerAccent.level(100), Brand.green)
+    }
 }

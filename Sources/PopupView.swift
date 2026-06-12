@@ -2,12 +2,12 @@
 //  PopupView.swift
 //  Burrow
 //
-//  The menu-bar HUD — Burrow's take on mole.fit's menu-bar popover, on
-//  the same brand + data path as the Status tab. It reuses the Status
-//  data model exactly: live values from `LiveFeed.lastSnapshot`, mini
-//  sparklines from `DB.findRangeSampled(prefix: MetricsStore.snapshotPrefix)`,
-//  rendered with the shared Brand components (Eyebrow / MiniChart /
-//  HealthRing / ProgressBar). The popover stays owned by
+//  The menu-bar HUD (design 3.5) — dense single-glance layout on the
+//  same data path as the Status tab: header (health + headline issue +
+//  free space), hardware chips row, six metric tiles with corner chips,
+//  the battery card with ring gauges + top drain, top processes with a
+//  per-row menu, the utility strip (Stay Awake · Wipe · Eject), and the
+//  Clean Watch lifetime footer. The popover stays owned by
 //  StatusBarController; this is just the SwiftUI it hosts.
 //
 
@@ -17,6 +17,8 @@ import AppKit
 struct PopupView: View {
     @StateObject private var model: HUDModel
     @ObservedObject private var ops = OperationCenter.shared
+    @ObservedObject private var awake = Awake.shared
+    @ObservedObject private var cleanScreen = CleanScreen.shared
     private weak var delegate: AppDelegate?
 
     init(db: DB, live: LiveFeed, delegate: AppDelegate) {
@@ -28,19 +30,22 @@ struct PopupView: View {
         // No ScrollView: the popover sizes to this content, so there's no
         // scrollbar (which, with "always show scrollbars", was eating width
         // and shifting everything left). Kept compact so it fits on screen.
-        // No custom background — the popover's own dark material paints both
-        // the box and the arrow, so they match.
         VStack(alignment: .leading, spacing: 9) {
-            header
+            if let s = model.snap {
+                header(s)
+                chipsRow(s)
+            } else {
+                fallbackHeader
+            }
             if ops.hasActivity { activitySection }   // running jobs up top, where they're seen
             if let s = model.snap {
-                healthHero(s)
                 metricGrid(s)
-                DiskBatteryRows(s: s)
+                batteryCard(s)
                 topProcesses(s)
             } else {
                 waiting
             }
+            utilityStrip
             Rectangle().fill(Brand.hairline).frame(height: 1)
             footer
         }
@@ -52,14 +57,58 @@ struct PopupView: View {
         .onDisappear { model.stop() }
     }
 
-    // MARK: Header
+    // MARK: Header — health glyph + score + headline issue + free space
 
-    private var header: some View {
+    private func header(_ s: MoleStatus) -> some View {
+        Button { open(.home) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 13)).foregroundStyle(HealthRating.color(s.healthScore))
+                Text("\(s.healthScore)").font(Brand.mono(16, .semibold)).foregroundStyle(Brand.textPrimary)
+                Text(headline(s)).font(Brand.sans(11)).foregroundStyle(Brand.textSecondary)
+                    .lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 6)
+                if let disk = s.disks.first {
+                    Text(String(format: NSLocalizedString("%@ free", comment: ""),
+                                Fmt.bytes(Int64(disk.total) - Int64(disk.used))))
+                        .font(Brand.mono(10)).foregroundStyle(Brand.textTertiary)
+                }
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Brand.textTertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(NSLocalizedString("Open Burrow", comment: ""))
+        .accessibilityLabel(String(format: NSLocalizedString("Health %d. Open Burrow.", comment: ""), s.healthScore))
+    }
+
+    private func headline(_ s: MoleStatus) -> String {
+        let m = s.healthScoreMsg
+        if let r = m.range(of: ": ") { return String(m[r.upperBound...]) }
+        return m.isEmpty ? HealthRating.label(s.healthScore) : m
+    }
+
+    private var fallbackHeader: some View {
         HStack(spacing: 7) {
             BurrowMark().frame(width: 18, height: 18)
             Text("Burrow").font(Brand.sans(13, .semibold)).foregroundStyle(Brand.textPrimary)
             Spacer()
             Text(model.freshness).font(Brand.mono(10)).foregroundStyle(Brand.textTertiary)
+        }
+    }
+
+    /// chip model · RAM · macOS version · uptime
+    private func chipsRow(_ s: MoleStatus) -> some View {
+        HStack(spacing: 5) {
+            Chip(text: s.hardware.cpuModel.replacingOccurrences(of: "Apple ", with: ""), color: Brand.textSecondary)
+            Chip(text: s.hardware.totalRam, color: Brand.textSecondary)
+            if !s.hardware.osVersion.isEmpty {
+                Chip(text: Fmt.macOSVersion(s.hardware.osVersion), color: Brand.textSecondary)
+            }
+            Chip(text: String(format: NSLocalizedString("up %@", comment: ""), Fmt.uptime(s.uptimeSeconds)),
+                 color: Brand.textSecondary)
+            Spacer()
         }
     }
 
@@ -73,7 +122,7 @@ struct PopupView: View {
         .padding(.vertical, 14)
     }
 
-    // MARK: Activity (cards for running / just-finished jobs, at the bottom)
+    // MARK: Activity (cards for running / just-finished jobs)
 
     private var activitySection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -174,55 +223,94 @@ struct PopupView: View {
         }
     }
 
-    // MARK: Health hero
-
-    private func healthHero(_ s: MoleStatus) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                Eyebrow(text: "Health", glyph: "checkmark.seal.fill", color: Brand.gold)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("\(s.healthScore)").font(Brand.mono(24, .semibold)).foregroundStyle(Brand.textPrimary)
-                    Text(HealthRating.label(s.healthScore)).font(Brand.sans(11, .medium))
-                        .foregroundStyle(HealthRating.color(s.healthScore))
-                }
-                Text(specLine(s)).font(Brand.mono(9)).foregroundStyle(Brand.textTertiary).lineLimit(1)
-            }
-            Spacer()
-            HealthRing(score: s.healthScore, color: HealthRating.color(s.healthScore))
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Brand.cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Brand.hairline, lineWidth: 1))
-    }
-
-    private func specLine(_ s: MoleStatus) -> String {
-        let cpu = s.hardware.cpuModel.replacingOccurrences(of: "Apple ", with: "")
-        return String(format: NSLocalizedString("%@ · %@ · up %@", comment: ""),
-                      cpu, s.hardware.totalRam, Fmt.uptime(s.uptimeSeconds))
-    }
-
-    // MARK: Metric grid
+    // MARK: Metric tiles — CPU · GPU · MEM · DISK · NET · FAN
 
     private func metricGrid(_ s: MoleStatus) -> some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
             ValueTile(variant: .hud, eyebrow: "CPU", glyph: "cpu", accent: Brand.green,
                       value: String(format: "%.0f", s.cpu.usage), unit: "%",
+                      chip: (s.thermal?.cpuTemp).flatMap { $0 > 0 ? (String(format: "%.0f°C", $0), Brand.orange) : nil },
                       values: model.cpuHist, chartStyle: .bars,
                       footnote: String(format: "load %.2f", s.cpu.load1))
-            ValueTile(variant: .hud, eyebrow: "Memory", glyph: "memorychip", accent: Brand.amber,
-                      value: String(format: "%.0f", s.memory.usedPercent), unit: "%",
-                      values: model.memHist, chartStyle: .area,
-                      footnote: String(format: "%.1f/%.0f GB", Fmt.gib(s.memory.used), Fmt.gib(s.memory.total)))
-            ValueTile(variant: .hud, eyebrow: "Network", glyph: "network", accent: Brand.green,
-                      value: netValue(s).0, unit: netValue(s).1,
-                      values: model.netHist, chartStyle: .area,
-                      footnote: netFoot(s))
             ValueTile(variant: .hud, eyebrow: "GPU", glyph: "cpu.fill", accent: Brand.orange,
                       value: gpuValue(s).0, unit: gpuValue(s).1,
+                      chip: (s.thermal?.gpuTemp).flatMap { $0 > 0 ? (String(format: "%.0f°C", $0), Brand.orange) : nil },
                       values: model.gpuHist, chartStyle: .area,
                       footnote: (s.gpu?.first?.name ?? "GPU").replacingOccurrences(of: "Apple ", with: ""))
+            ValueTile(variant: .hud, eyebrow: "Memory", glyph: "memorychip", accent: Brand.amber,
+                      value: String(format: "%.0f", s.memory.usedPercent), unit: "%",
+                      chip: memChip(s),
+                      values: model.memHist, chartStyle: .area,
+                      footnote: String(format: "%.1f/%.0f GB · swap %.1f GB",
+                                       Fmt.gib(s.memory.used), Fmt.gib(s.memory.total), Fmt.gib(s.memory.swapUsed)))
+            diskTile(s)
+            ValueTile(variant: .hud, eyebrow: "Network", glyph: "network", accent: Brand.green,
+                      value: netValue(s).0, unit: netValue(s).1,
+                      chip: (s.network.first(where: { !$0.ip.isEmpty })?.name).map { ($0, Brand.blue) },
+                      values: model.netHist, chartStyle: .area,
+                      footnote: netFoot(s))
+            fanTile(s)
         }
+    }
+
+    /// DISK tile: total chip, free headline, used bar + line.
+    private func diskTile(_ s: MoleStatus) -> some View {
+        let disk = s.disks.first
+        let freeBytes = Int64(disk?.total ?? 0) - Int64(disk?.used ?? 0)
+        let pct = disk?.usedPercent ?? 0
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Eyebrow(text: "Disk", glyph: "internaldrive", color: Brand.blue)
+                Spacer(minLength: 2)
+                Chip(text: s.hardware.diskSize, color: Brand.textSecondary)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(Fmt.bytes(freeBytes)).font(Brand.mono(15, .semibold)).foregroundStyle(Brand.textPrimary)
+                Text("free").font(Brand.mono(9)).foregroundStyle(Brand.textSecondary)
+            }
+            LowSpaceBar(fraction: pct / 100).frame(height: 4)
+            Text(String(format: NSLocalizedString("%@ used · %.0f%%", comment: ""),
+                        Fmt.bytes(Int64(disk?.used ?? 0)), pct))
+                .font(Brand.mono(8.5)).foregroundStyle(Brand.textTertiary).lineLimit(1)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Brand.cardFill))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Brand.hairline, lineWidth: 1))
+    }
+
+    /// FAN tile — read-only v1 (same rule as Status: no placebo buttons).
+    private func fanTile(_ s: MoleStatus) -> some View {
+        let fanCount = s.thermal?.fanCount ?? 0
+        let rpm = s.thermal?.fanSpeed ?? 0
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                // Neutral on purpose — see PowerAccent (Format.swift).
+                Eyebrow(text: "Fan", glyph: "fan", color: PowerAccent.fan)
+                Spacer(minLength: 2)
+                if fanCount > 0 {
+                    Chip(text: String(format: NSLocalizedString("%d fans", comment: ""), fanCount), color: Brand.textSecondary)
+                }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(fanCount > 0 ? "\(rpm)" : "—").font(Brand.mono(15, .semibold)).foregroundStyle(Brand.textPrimary)
+                if fanCount > 0 { Text("RPM").font(Brand.mono(9)).foregroundStyle(Brand.textSecondary) }
+            }
+            Text(fanCount > 0 ? NSLocalizedString("macOS manages speed", comment: "")
+                              : NSLocalizedString("No fan data", comment: ""))
+                .font(Brand.mono(8.5)).foregroundStyle(Brand.textTertiary).lineLimit(1)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Brand.cardFill))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Brand.hairline, lineWidth: 1))
+    }
+
+    private func memChip(_ s: MoleStatus) -> (String, Color)? {
+        let label = s.memory.pressure.isEmpty ? "" : s.memory.pressure.lowercased()
+        guard !label.isEmpty else { return nil }
+        let color: Color = label == "normal" ? Brand.textSecondary : (label == "warning" ? Brand.orange : Brand.red)
+        return (label, color)
     }
 
     private func netValue(_ s: MoleStatus) -> (String, String) {
@@ -239,7 +327,73 @@ struct PopupView: View {
         return u >= 0 ? (String(format: "%.0f", u), "%") : ("—", "")
     }
 
-    // MARK: Top processes
+    // MARK: Battery card — rings + top drain
+
+    @ViewBuilder
+    private func batteryCard(_ s: MoleStatus) -> some View {
+        if let b = s.batteries?.first {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    // Accent semantics live in PowerAccent (Format.swift):
+                    // red = low, green = charging/full, amber = discharging.
+                    Eyebrow(text: "Battery", glyph: "battery.100",
+                            color: PowerAccent.battery(percent: b.percent, status: b.status))
+                    Spacer()
+                    Chip(text: String(format: NSLocalizedString("%d%% Health", comment: ""), b.capacity),
+                         color: b.health == "Good" ? Brand.green : Brand.gold)
+                }
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Text(String(format: "%.0f%%", b.percent))
+                                .font(Brand.mono(16, .semibold)).foregroundStyle(Brand.textPrimary)
+                            if !b.timeLeft.isEmpty {
+                                Text(b.timeLeft).font(Brand.mono(10)).foregroundStyle(Brand.textSecondary)
+                            }
+                        }
+                        Text(batterySubline(b))
+                            .font(Brand.mono(9)).foregroundStyle(Brand.textTertiary)
+                    }
+                    Spacer()
+                    HStack(spacing: 8) {
+                        RingGauge(percent: b.percent,
+                                  color: PowerAccent.battery(percent: b.percent, status: b.status),
+                                  glyph: "laptopcomputer", label: NSLocalizedString("Mac", comment: ""), size: 34)
+                        ForEach(Array(bluetoothWithBattery(s).prefix(3).enumerated()), id: \.offset) { _, device in
+                            RingGauge(percent: Double(device.batteryPercent ?? 0),
+                                      color: PowerAccent.level(device.batteryPercent ?? 0),
+                                      glyph: BluetoothStrip.glyph(device.name),
+                                      label: device.name, size: 34)
+                        }
+                    }
+                }
+                if let drain = model.topDrain {
+                    HStack(spacing: 5) {
+                        Image(systemName: "bolt.fill").font(.system(size: 9)).foregroundStyle(Brand.gold)
+                        Text(String(format: NSLocalizedString("Top drain — %@ · avg %.0f%% CPU over the last hour", comment: ""),
+                                    drain.name, drain.avgCPU))
+                            .font(Brand.mono(9)).foregroundStyle(Brand.textSecondary).lineLimit(1)
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Brand.cardFill))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Brand.hairline, lineWidth: 1))
+        }
+    }
+
+    private func bluetoothWithBattery(_ s: MoleStatus) -> [BluetoothDevice] {
+        (s.bluetooth ?? []).filter { $0.connected && $0.batteryPercent != nil }
+    }
+
+    private func batterySubline(_ b: BatteryStatus) -> String {
+        var parts = [String(format: NSLocalizedString("%d cyc", comment: ""), b.cycleCount)]
+        if let t = model.snap?.thermal?.batteryTemp, t > 0 { parts.append(String(format: "%.0f°C", t)) }
+        return parts.joined(separator: " · ")
+    }
+
+    // MARK: Top processes (name · CPU · memory · menu)
 
     private func topProcesses(_ s: MoleStatus) -> some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -253,17 +407,108 @@ struct PopupView: View {
                     Spacer(minLength: 6)
                     Text(String(format: "%.1f%%", p.cpu)).font(Brand.mono(10))
                         .foregroundStyle(p.cpu > 30 ? Brand.orange : Brand.textSecondary)
+                    Text(memText(p)).font(Brand.mono(10)).foregroundStyle(Brand.textTertiary)
+                        .frame(width: 52, alignment: .trailing)
+                    procMenu(p)
                 }
             }
         }
     }
 
+    private func memText(_ p: ProcessInfo) -> String {
+        if let bytes = p.memoryBytes, bytes > 0 { return Fmt.bytes(Int64(bytes)) }
+        return String(format: "%.1f%%", p.memory)
+    }
+
+    private func procMenu(_ p: ProcessInfo) -> some View {
+        Menu {
+            Button(NSLocalizedString("Reveal in Finder", comment: "")) {
+                if let path = ProcessActions.executablePath(pid: p.pid) {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                }
+            }
+            Button(NSLocalizedString("Copy name", comment: "")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(p.name, forType: .string)
+            }
+            if ProcessActions.isOwnProcess(pid: p.pid) {
+                Divider()
+                Button(NSLocalizedString("Quit…", comment: ""), role: .destructive) {
+                    if ProcessActions.quit(pid: p.pid) == false { NSSound.beep() }
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis").font(.system(size: 10)).foregroundStyle(Brand.textTertiary)
+                .frame(width: 16, height: 16).contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 16)
+        .accessibilityLabel(String(format: NSLocalizedString("Actions for %@", comment: ""), p.name))
+    }
+
     private static let blankIcon = NSImage(size: NSSize(width: 15, height: 15))
 
-    // MARK: Footer
+    // MARK: Utility strip — Stay Awake · Wipe · Eject
+
+    private var utilityStrip: some View {
+        HStack(spacing: 6) {
+            utilityButton(glyph: "cup.and.saucer.fill",
+                          label: NSLocalizedString("Stay Awake", comment: ""),
+                          active: awake.isActive) {
+                awake.isActive ? awake.stop() : awake.start(.untilOff)
+            }
+            // Armed like Stay Awake while the wipe overlay is up: accent
+            // toggled and the label flips to the exit hint.
+            utilityButton(glyph: "rectangle.inset.filled",
+                          label: cleanScreen.isActive
+                              ? NSLocalizedString("esc to exit", comment: "")
+                              : NSLocalizedString("Wipe", comment: ""),
+                          active: cleanScreen.isActive) {
+                cleanScreen.toggle()
+            }
+            if model.hasExternalVolumes {
+                utilityButton(glyph: "eject.fill",
+                              label: NSLocalizedString("Eject", comment: ""),
+                              active: false) {
+                    model.ejectExternals()
+                }
+            }
+            Spacer()
+        }
+    }
+
+    private func utilityButton(glyph: String, label: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: glyph).font(.system(size: 10, weight: .medium))
+                Text(label).font(Brand.mono(10, .medium))
+            }
+            .foregroundStyle(active ? Brand.gold : Brand.textSecondary)
+            .padding(.horizontal, 9).padding(.vertical, 5)
+            .background(Capsule().fill(active ? Brand.gold.opacity(0.16) : Brand.chipFill))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityValue(active ? NSLocalizedString("on", comment: "") : "")
+    }
+
+    // MARK: Footer — Clean Watch + tool pills + MCP line
 
     private var footer: some View {
         VStack(spacing: 8) {
+            // Clean Watch: lifetime aggregates from `mo history`. Hidden
+            // when the engine has no history (older moles) — zeros would
+            // read as "you never cleaned".
+            if let totals = model.cleanWatch, !totals.isEmpty {
+                HStack(spacing: 10) {
+                    Eyebrow(text: "Clean Watch", glyph: "sparkles", color: Tool.clean.accent)
+                    Spacer()
+                    Text(String(format: NSLocalizedString("%@ cleaned · %d uninstalled · %d optimized", comment: ""),
+                                Fmt.bytes(totals.cleanedBytes), totals.uninstalledApps, totals.optimizeRuns))
+                        .font(Brand.mono(9)).foregroundStyle(Brand.textSecondary)
+                }
+            }
             // Icon pills — text labels for every tool overflow the narrow
             // popover; glyphs (tinted by tool) stay compact and tidy.
             HStack(spacing: 6) {
@@ -311,51 +556,6 @@ struct PopupView: View {
     private func openHistory() { open(.home) }   // History lives in Home now
 }
 
-// MARK: - Disk + Battery rows
-
-private struct DiskBatteryRows: View {
-    let s: MoleStatus
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let disk = s.disks.first {
-                bar(eyebrow: "Disk", glyph: "internaldrive", accent: disk.usedPercent >= 90 ? Brand.red : Brand.blue,
-                    value: Fmt.gb(Fmt.gib(Double(disk.total) - Double(disk.used))) + " GB",
-                    detail: String(format: NSLocalizedString("%.0f%% used", comment: ""), disk.usedPercent),
-                    fraction: disk.usedPercent / 100,
-                    barColor: disk.usedPercent >= 90 ? Brand.red : Brand.blue)
-            }
-            if let b = s.batteries?.first {
-                bar(eyebrow: "Battery", glyph: "battery.100",
-                    accent: b.percent <= 20 ? Brand.red : Brand.green,
-                    value: String(format: "%.0f%%", b.percent),
-                    detail: b.status == "charging"
-                        ? NSLocalizedString("charging", comment: "")
-                        : String(format: NSLocalizedString("%@ left", comment: ""), b.timeLeft),
-                    fraction: b.percent / 100,
-                    barColor: b.percent <= 20 ? Brand.red : Brand.green)
-            }
-        }
-    }
-
-    private func bar(eyebrow: String, glyph: String, accent: Color,
-                     value: String, detail: String, fraction: Double, barColor: Color) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Eyebrow(text: eyebrow, glyph: glyph, color: accent)
-                Spacer()
-                Text(detail).font(Brand.mono(9)).foregroundStyle(Brand.textTertiary)
-            }
-            Text(value).font(Brand.mono(13, .semibold)).foregroundStyle(Brand.textPrimary)
-            ProgressBar(fraction: fraction, color: barColor)
-        }
-        .padding(9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Brand.cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Brand.hairline, lineWidth: 1))
-    }
-}
-
 // MARK: - Model (same data path as StatusModel, lighter)
 
 @MainActor
@@ -366,11 +566,20 @@ final class HUDModel: ObservableObject {
     @Published var memHist: [Double] = []
     @Published var netHist: [Double] = []
     @Published var gpuHist: [Double] = []
+    /// Heaviest process by average CPU over the last hour of samples.
+    @Published var topDrain: (name: String, avgCPU: Double)?
+    /// Lifetime cleanup totals from `mo history`; nil = not loaded or
+    /// engine has no history command.
+    @Published var cleanWatch: CleanWatch.Totals?
 
     private let db: DB
     private let live: LiveFeed
     private var liveTimer: Timer?
     private var histTimer: Timer?
+
+    /// `mo history` is spawned at most once a day — the footer is a
+    /// lifetime figure, it doesn't move minute to minute.
+    private static var cleanWatchCache: (at: Date, totals: CleanWatch.Totals)?
 
     init(db: DB, live: LiveFeed) {
         self.db = db
@@ -380,6 +589,7 @@ final class HUDModel: ObservableObject {
     func start() {
         refreshCurrent()
         refreshHistory()
+        loadCleanWatch()
         liveTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshCurrent() }
         }
@@ -391,6 +601,31 @@ final class HUDModel: ObservableObject {
     func stop() {
         liveTimer?.invalidate(); liveTimer = nil
         histTimer?.invalidate(); histTimer = nil
+    }
+
+    // MARK: External volumes
+
+    var hasExternalVolumes: Bool {
+        snap?.disks.contains(where: \.external) ?? false
+    }
+
+    /// Eject every mounted external volume. Failures (file in use) come
+    /// back as one summary line in the Activity section.
+    func ejectExternals() {
+        let mounts = snap?.disks.filter(\.external).map(\.mount) ?? []
+        guard !mounts.isEmpty else { return }
+        let opId = UUID()
+        OperationCenter.shared.begin(opId, label: NSLocalizedString("Ejecting external volumes", comment: ""))
+        DispatchQueue.global(qos: .userInitiated).async {
+            var ejected = 0, failed = 0
+            for mount in mounts {
+                if NSWorkspace.shared.unmountAndEjectDevice(atPath: mount) { ejected += 1 } else { failed += 1 }
+            }
+            Task { @MainActor in
+                OperationCenter.shared.end(opId, success: failed == 0,
+                                           detail: String(format: NSLocalizedString("%d ejected · %d busy", comment: ""), ejected, failed))
+            }
+        }
     }
 
     private func refreshCurrent() {
@@ -405,13 +640,32 @@ final class HUDModel: ObservableObject {
     private func refreshHistory() {
         let now = Int(Date().timeIntervalSince1970)
         var cpu: [Double] = [], mem: [Double] = [], net: [Double] = [], gpu: [Double] = []
-        for stored in MetricsStore(db: db).snapshots(.init(since: now - 30 * 60, until: now), maxPoints: 30) {
+        var processLists: [[ProcessInfo]] = []
+        for stored in MetricsStore(db: db).snapshots(.init(since: now - 60 * 60, until: now), maxPoints: 60) {
             let s = stored.status
             cpu.append(s.cpu.usage)
             mem.append(s.memory.usedPercent)
             net.append(s.network.reduce(0.0) { $0 + $1.rxRateMbs + $1.txRateMbs })
             gpu.append(max(0, s.gpu?.first?.usage ?? 0))
+            if let procs = s.topProcesses { processLists.append(procs) }
         }
-        cpuHist = cpu; memHist = mem; netHist = net; gpuHist = gpu
+        // Sparklines stay ~30 min; the drain ranking uses the full hour.
+        cpuHist = Array(cpu.suffix(30)); memHist = Array(mem.suffix(30))
+        netHist = Array(net.suffix(30)); gpuHist = Array(gpu.suffix(30))
+        topDrain = TopDrain.heaviest(processLists)
+    }
+
+    private func loadCleanWatch() {
+        if let cached = Self.cleanWatchCache, Date().timeIntervalSince(cached.at) < 86_400 {
+            cleanWatch = cached.totals
+            return
+        }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let totals = CleanWatch.totals(from: MoleHistory.load())
+            Task { @MainActor in
+                Self.cleanWatchCache = (Date(), totals)
+                self?.cleanWatch = totals
+            }
+        }
     }
 }

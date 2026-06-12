@@ -119,8 +119,13 @@ final class LocalizationTests: XCTestCase {
         }
     }
 
+    // Read the lproj from the BUILT app bundle (the test host), not the
+    // repo checkout: it validates the artifact that actually ships, and
+    // it keeps the suite off TCC-protected user folders — a repo on
+    // ~/Desktop made every Data(contentsOf:) here block on a tccd that
+    // had wedged, hanging the whole suite.
     private func localizedStrings(_ language: String) throws -> [String: String] {
-        let url = lprojURL(language).appendingPathComponent("Localizable.strings")
+        let url = try lprojURL(language).appendingPathComponent("Localizable.strings")
         let data = try Data(contentsOf: url)
         let plist = try PropertyListSerialization.propertyList(from: data, format: nil)
         return try XCTUnwrap(plist as? [String: String])
@@ -130,11 +135,8 @@ final class LocalizationTests: XCTestCase {
         try XCTUnwrap(Bundle(url: lprojURL(language)))
     }
 
-    private func lprojURL(_ language: String) -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Resources")
-            .appendingPathComponent("\(language).lproj")
+    private func lprojURL(_ language: String) throws -> URL {
+        try XCTUnwrap(Bundle.main.url(forResource: language, withExtension: "lproj"),
+                      "\(language).lproj missing from the app bundle")
     }
 }

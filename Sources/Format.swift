@@ -42,6 +42,20 @@ enum Fmt {
         if h > 0 { return "\(h)h \(m)m" }
         return "\(m)m"
     }
+    /// Display form of the engine's `hardware.os_version`. Mole already
+    /// prefixes it ("macOS 26.5.1"), and views used to prepend their own
+    /// "macOS " on top → "macOS macOS 26.5.1" in the HUD chips and the
+    /// Status header. One formatter, one prefix: strip any leading
+    /// "macOS" (case-insensitive) and re-prepend exactly once. Empty in,
+    /// empty out — callers hide the chip entirely.
+    static func macOSVersion(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespaces)
+        guard !s.isEmpty else { return "" }
+        if let r = s.range(of: "macos", options: [.caseInsensitive, .anchored]) {
+            s = String(s[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        return s.isEmpty ? "macOS" : "macOS \(s)"
+    }
     private static let dayFmt: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "MMM d"; return f
     }()
@@ -89,4 +103,36 @@ enum HealthRating {
         case .critical:         return Brand.red
         }
     }
+}
+
+/// THE battery / fan accent mapping — the one place it's defined, shared
+/// by the Status tiles and the menu-bar HUD so the two surfaces can never
+/// disagree (they used to: the HUD showed green while discharging, the
+/// Status card amber — it read as random). Pinned by FormatTests.
+///
+///   Mac battery —  red   = low (≤ 20%),
+///                  green = charging / charged / full / on AC,
+///                  amber = discharging.
+///   Peripherals —  no charging state is reported, so rings use the level
+///                  ladder: red ≤ 20, amber ≤ 40, green above.
+///   Fan         —  always neutral (Brand.textSecondary): it's read-only
+///                  telemetry macOS manages; a state color would imply a
+///                  judgement we don't make.
+enum PowerAccent {
+    /// Mac battery accent from percent + the engine's `status` string
+    /// ("charging" / "discharging" / "charged" / "full" / "AC attached").
+    static func battery(percent: Double, status: String) -> Color {
+        if percent <= 20 { return Brand.red }
+        return status.lowercased().contains("discharg") ? Brand.amber : Brand.green
+    }
+
+    /// Charge-level ladder for peripheral rings/chips (no state available).
+    static func level(_ percent: Int) -> Color {
+        if percent <= 20 { return Brand.red }
+        if percent <= 40 { return Brand.amber }
+        return Brand.green
+    }
+
+    /// Fan tiles stay neutral — see the mapping note above.
+    static let fan = Brand.textSecondary
 }

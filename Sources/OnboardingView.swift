@@ -1,0 +1,200 @@
+//
+//  OnboardingView.swift
+//  Burrow
+//
+//  First-run onboarding: two full-window slides shown once, after the
+//  mo-missing gate (MoleInstallView is effectively slide 0).
+//
+//    1. Permissions — Full Disk Access as a PermissionRow; skippable,
+//       because the safe scan works without it (the in-flow gates and
+//       the access banner remain the fallback).
+//    2. Free & open source — the $0 card and what's included. Telemetry
+//       stays opt-out and lives in Settings ▸ Advanced only (no inline
+//       toggle here — hand-test feedback 2026-06).
+//
+//  Window chrome is plain (traffic lights only); AppDelegate owns the
+//  window and passes `onFinish`.
+//
+
+import SwiftUI
+
+struct OnboardingView: View {
+    var onFinish: () -> Void
+
+    @State private var page = 0
+    @State private var fdaGranted = Privacy.hasFullDiskAccess()
+    @State private var showRelaunchHint = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            VisualEffectBackground().ignoresSafeArea()
+            LinearGradient(colors: [Color(hex: 0x16150F).opacity(0.90), Brand.nearBlack.opacity(0.97)],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                progressDashes.padding(.top, 26)
+                if page == 0 { permissionsSlide } else { freeSlide }
+            }
+        }
+        .frame(minWidth: 640, minHeight: 520)
+        .environment(\.colorScheme, .dark)
+    }
+
+    // MARK: - Progress dashes
+
+    private var progressDashes: some View {
+        HStack(spacing: 7) {
+            ForEach(0..<2, id: \.self) { i in
+                Capsule()
+                    .fill(Color.white.opacity(i == page ? 0.95 : 0.30))
+                    .frame(width: i == page ? 28 : 14, height: 4)
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: page)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(format: NSLocalizedString("Step %d of %d", comment: "onboarding progress"), page + 1, 2))
+    }
+
+    // MARK: - Slide 1 · permissions
+
+    private var permissionsSlide: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            heroMark
+            Text("Grant access to get started.")
+                .font(Brand.serif(28, .medium)).foregroundStyle(Brand.textPrimary)
+                .padding(.top, 22)
+            Text("Optional — the safe scan works without it.")
+                .font(Brand.sans(12)).foregroundStyle(Brand.textTertiary)
+                .padding(.top, 6)
+
+            VStack(spacing: 10) {
+                PermissionRow(
+                    title: NSLocalizedString("Full Disk Access", comment: ""),
+                    benefit: NSLocalizedString("Unlocks the caches and leftovers Burrow needs to reach.", comment: ""),
+                    granted: fdaGranted,
+                    onOpenSettings: { Privacy.openFullDiskAccessSettings() },
+                    onCheck: {
+                        fdaGranted = Privacy.hasFullDiskAccess()
+                        if !fdaGranted { showRelaunchHint = true }
+                    })
+                if showRelaunchHint, !fdaGranted {
+                    HStack(spacing: 6) {
+                        Text("Granted in Settings but still gray? macOS applies it at the next launch.")
+                            .font(Brand.mono(10)).foregroundStyle(Brand.textTertiary)
+                        Button(NSLocalizedString("Relaunch to apply", comment: "")) { Privacy.relaunch() }
+                            .buttonStyle(.plain)
+                            .font(Brand.sans(11, .semibold)).foregroundStyle(Brand.green)
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: 520)
+            .padding(.top, 26)
+            Spacer(); Spacer()
+        }
+        .padding(.horizontal, 40)
+        .overlay(alignment: .bottomTrailing) {
+            PillButton(title: "Continue") {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { page = 1 }
+            }
+            .padding(24)
+        }
+    }
+
+    // MARK: - Slide 2 · free & open source
+
+    private var freeSlide: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            Text("Burrow is free.")
+                .font(Brand.serif(28, .medium)).foregroundStyle(Brand.textPrimary)
+            Text("Open source, local-first. No license, no trial, no upsell.")
+                .font(Brand.sans(12)).foregroundStyle(Brand.textSecondary)
+                .padding(.top, 6)
+
+            VStack(spacing: 0) {
+                HStack(alignment: .center, spacing: 22) {
+                    VStack(spacing: 2) {
+                        Text(verbatim: "$0")
+                            .font(Brand.mono(44, .bold)).foregroundStyle(Brand.textPrimary)
+                        Text("forever")
+                            .font(Brand.serif(14)).italic().foregroundStyle(Brand.textSecondary)
+                    }
+                    .frame(minWidth: 130)
+                    VStack(alignment: .leading, spacing: 9) {
+                        featureLine(NSLocalizedString("Every tool unlocked — Clean, Purge, Installers, Software, Optimize, Analyze", comment: ""))
+                        featureLine(NSLocalizedString("Watches your Mac over weeks, not seconds — 30–90 day history", comment: ""))
+                        featureLine(NSLocalizedString("Agent-ready — MCP tools for Claude, Cursor, Codex (off until you opt in)", comment: ""))
+                        HStack(spacing: 5) {
+                            featureLine(NSLocalizedString("Open source — read every line", comment: ""))
+                            Link(destination: URL(string: "https://github.com/caezium/Burrow")!) {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 10)).foregroundStyle(Brand.textTertiary)
+                            }
+                            .accessibilityLabel(NSLocalizedString("Open the Burrow repository on GitHub", comment: ""))
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Brand.cardFill))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Brand.hairline, lineWidth: 1))
+            .frame(maxWidth: 560)
+            .padding(.top, 26)
+            Spacer(); Spacer()
+        }
+        .padding(.horizontal, 40)
+        .overlay(alignment: .bottomLeading) {
+            Button(NSLocalizedString("Back", comment: "")) {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { page = 0 }
+            }
+            .buttonStyle(.plain)
+            .font(Brand.sans(12, .semibold)).foregroundStyle(Brand.textSecondary)
+            .padding(28)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            PillButton(title: "Start using Burrow") {
+                onFinish()
+            }
+            .padding(24)
+        }
+    }
+
+    // MARK: - Shared bits
+
+    /// Burrow mark in a circular chip on a ring motif — the radial-gradient
+    /// circle glyph style Analyze's sidebar uses, with the menu-bar mark inside.
+    private var heroMark: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                .frame(width: 124, height: 124)
+            Circle()
+                .fill(RadialGradient(colors: [Brand.cream.opacity(0.9), Brand.cream.opacity(0.12)],
+                                     center: .init(x: 0.4, y: 0.35), startRadius: 2, endRadius: 64))
+                .frame(width: 86, height: 86)
+                .shadow(color: Brand.cream.opacity(0.35), radius: 26)
+            Image(nsImage: BurrowIcons.menuBar)
+                .renderingMode(.template)
+                .resizable().frame(width: 34, height: 34)
+                .foregroundStyle(Brand.espresso)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func featureLine(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 9, weight: .bold)).foregroundStyle(Brand.green)
+                .padding(3)
+                .background(Circle().fill(Brand.green.opacity(0.15)))
+                .accessibilityHidden(true)
+            Text(text)
+                .font(Brand.sans(12)).foregroundStyle(Brand.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}

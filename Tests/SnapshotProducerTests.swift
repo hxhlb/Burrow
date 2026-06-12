@@ -241,7 +241,36 @@ final class SnapshotProducerEngineTests: XCTestCase {
         clock.advance(by: 1)
         XCTAssertEqual(p.live.rxMBs, 1.0, accuracy: 0.001)
         XCTAssertEqual(p.live.samples.count, 2)
-        XCTAssertEqual(p.live.netHistory.last ?? -1, 1.0, accuracy: 0.001)
+        XCTAssertEqual(p.live.netHistory(lastSeconds: 600).last ?? -1, 1.0, accuracy: 0.001)
+    }
+
+    func testNetHistoryWindowsToTrailingSeconds() {
+        let clock = ManualClock(start: Date(timeIntervalSince1970: 0))
+        let hw = FakeCounters()
+        let p = makeProducer(clock: clock, hw: hw)
+        p.start()
+
+        // 30 one-second ticks at a steady +1 MiB/s on rx.
+        for i in 1...30 {
+            hw.net = (rx: UInt64(i + 1) << 20, tx: 0)
+            clock.advance(by: 1)
+        }
+        XCTAssertEqual(p.live.samples.count, 30)
+
+        // The window is measured from the NEWEST sample, not the wall clock.
+        XCTAssertEqual(p.live.netHistory(lastSeconds: 10).count, 11,
+                       "trailing 10 s inclusive of both endpoints")
+        XCTAssertEqual(p.live.netHistory(lastSeconds: 3600).count, 30,
+                       "a window wider than the ring returns the whole ring")
+        XCTAssertEqual(p.live.netHistory(lastSeconds: 0).count, 1,
+                       "zero window still yields the newest sample")
+    }
+
+    func testNetHistoryEmptyRing() {
+        let clock = ManualClock(start: Date(timeIntervalSince1970: 0))
+        let p = makeProducer(clock: clock, hw: FakeCounters())
+        // No ticks yet — no samples, no crash.
+        XCTAssertTrue(p.live.netHistory(lastSeconds: 600).isEmpty)
     }
 
     /// Exact persisted-row count (findRangeSampled time-buckets wide

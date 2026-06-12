@@ -53,8 +53,37 @@ final class HUDController: NSViewController {
         self.view = scroll
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // The hosting view's height floats on its SwiftUI intrinsic size
+        // (only top/leading/width are pinned). A document-view frame change
+        // does NOT relayout the enclosing scroll view, so viewDidLayout
+        // alone misses content growing or shrinking while the popover is
+        // open — Activity cards appearing, the battery card mounting after
+        // the first sample. Watch the frame directly and resize the popover
+        // to match, so its height always tracks the content.
+        hosting.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(contentFrameChanged(_:)),
+                                               name: NSView.frameDidChangeNotification,
+                                               object: hosting)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func contentFrameChanged(_ note: Notification) {
+        syncPopoverHeight()
+    }
+
     override func viewDidLayout() {
         super.viewDidLayout()
+        syncPopoverHeight()
+    }
+
+    /// Popover height = content height, capped to the visible screen;
+    /// beyond the cap the internal scroll view takes over.
+    private func syncPopoverHeight() {
         var contentH = hosting.intrinsicContentSize.height
         if contentH <= 0 { contentH = hosting.fittingSize.height }
         let target = NSSize(width: 334, height: min(max(contentH, 1), maxHeight))

@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 extension Notification.Name {
     /// Posted by AppDelegate when a deep-link (HUD pill, gear, Dock reopen)
@@ -31,6 +32,14 @@ struct RootView: View {
     /// for an installed-but-hidden hierarchy, so Home/Settings would keep
     /// polling forever behind a closed window without this flag.
     @State private var windowVisible = true
+    /// The ambient Full Disk Access state (issue #3, demoted from blocking
+    /// gates). Probed at mount and on every app activation, so granting
+    /// access in System Settings dismisses the banner by itself.
+    @State private var fdaGranted = Privacy.hasFullDiskAccess()
+    @State private var fdaBannerDismissed = Store.fullDiskAccessNoticeDismissed
+    /// Where Esc in the Settings pane returns to.
+    @State private var lastNonSettingsPane: Pane = .home
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(db: DB, producer: SnapshotProducer, delegate: AppDelegate?, initialPane: Pane = .home) {
         self.db = db
@@ -57,7 +66,10 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.22), value: pane)
         // Sample fast only while a live metrics pane is on screen.
         .onAppear { producer.setForeground(Self.isMetricsPane(pane)) }
-        .onChange(of: pane) { _, p in producer.setForeground(Self.isMetricsPane(p)) }
+        .onChange(of: pane) { _, p in
+            producer.setForeground(Self.isMetricsPane(p))
+            if p != .settings { lastNonSettingsPane = p }
+        }
         .onDisappear { producer.setForeground(false) }
         .onReceive(NotificationCenter.default.publisher(for: .burrowSelectPane)) { note in
             if let p = note.object as? Pane { pane = p }
@@ -66,6 +78,24 @@ struct RootView: View {
             if let visible = note.object as? Bool { windowVisible = visible }
             producer.setForeground(windowVisible && Self.isMetricsPane(pane))
         }
+        // Re-probe FDA whenever the user comes back from System Settings —
+        // the banner auto-dismisses the moment access is granted.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            fdaGranted = Privacy.hasFullDiskAccess()
+        }
+        .overlay(alignment: .bottom) {
+            if !fdaGranted, !fdaBannerDismissed {
+                AccessBanner(onDismiss: {
+                    Store.fullDiskAccessNoticeDismissed = true
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                        fdaBannerDismissed = true
+                    }
+                })
+                .padding(.horizontal, 18).padding(.bottom, 14)
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: fdaGranted)
     }
 
     /// Panes whose charts want live, high-cadence data. Home's Overview /
@@ -98,7 +128,7 @@ struct RootView: View {
                     // VACUUM can rewrite the whole DB file).
                     let m = delegate?.maintenance
                     DispatchQueue.global(qos: .utility).async { m?.runNow() }
-                })
+                }, onClose: { pane = lastNonSettingsPane })
             }
         }
     }

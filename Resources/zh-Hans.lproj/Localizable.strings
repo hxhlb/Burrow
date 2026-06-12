@@ -440,3 +440,309 @@
 /* i18n backfill (cont.) — running count + AI settings field labels */
 "%lld running" = "%lld 个运行中";
 "blank for LM Studio" = "LM Studio 留空";
+
+/* ============================================================
+   2026-06 UI/UX redesign (plans/ui-ux-review-2026-06-10.md)
+   Onboarding · access banner · Clean review · result hero ·
+   task ticker · Software (uninstall/updates/startup) · Settings
+   tabs · menu-bar tools · Status/popover · Analyze progress
+   ============================================================ */
+
+/* Onboarding */
+"Step %d of %d" = "第 %1$d 步，共 %2$d 步";
+"Grant access to get started." = "授予访问权限，即刻开始。";
+"Optional — the safe scan works without it." = "可选 —— 不授予也能使用安全扫描。";
+"Full Disk Access" = "完全磁盘访问权限";
+"Unlocks the caches and leftovers Burrow needs to reach." = "解锁 Burrow 需要触达的缓存与残留文件。";
+"Granted in Settings but still gray? macOS applies it at the next launch." = "已在系统设置中授予却仍是灰色？macOS 会在下次启动时生效。";
+"Relaunch to apply" = "重新启动以生效";
+"Continue" = "继续";
+"Burrow is free." = "Burrow 完全免费。";
+"Open source, local-first. No license, no trial, no upsell." = "开源、本地优先。无许可证、无试用、无推销。";
+"forever" = "永久";
+"Every tool unlocked — Clean, Purge, Installers, Software, Optimize, Analyze" = "所有工具全部可用 —— 清理、深掘、安装包、软件、优化、分析";
+"Watches your Mac over weeks, not seconds — 30–90 day history" = "以周为单位看护你的 Mac，而非几秒 —— 30–90 天历史";
+"Agent-ready — MCP tools for Claude, Cursor, Codex (off until you opt in)" = "随时接入智能体 —— 为 Claude、Cursor、Codex 提供 MCP 工具（默认关闭，需手动开启）";
+"Open source — read every line" = "开源 —— 每一行代码都可查看";
+"Open the Burrow repository on GitHub" = "在 GitHub 上打开 Burrow 仓库";
+"Start using Burrow" = "开始使用 Burrow";
+"Open Settings" = "打开系统设置";
+"Check" = "检查";
+"Granted" = "已授予";
+"Not granted" = "未授予";
+
+/* Access banner */
+"Full Disk Access is off" = "完全磁盘访问权限已关闭";
+"Without it, Burrow can't reach most system caches." = "没有它，Burrow 无法触达大多数系统缓存。";
+"Dismiss" = "关闭";
+
+/* Clean — result hero & run */
+"Scan your Mac" = "扫描你的 Mac";
+"%@ found" = "发现 %@";
+"Scanning, %@ found so far" = "扫描中，目前已发现 %@";
+"Stopped before the end — results are partial." = "提前停止 —— 结果不完整。";
+"Review results" = "查看结果";
+"Limited scan active · App Support and container caches are skipped" = "受限扫描进行中 · 已跳过 App Support 与容器缓存";
+"Limited scan active. App Support and container caches are skipped. Open for options." = "受限扫描进行中。已跳过 App Support 与容器缓存。打开以查看选项。";
+"Why limited?" = "为何受限？";
+"Without Full Disk Access, macOS hides most app and container caches from Burrow. Grant it once for full scans — or rerun this scan with administrator rights (one password)." = "没有完全磁盘访问权限时，macOS 会向 Burrow 隐藏大多数应用与容器缓存。授予一次即可完整扫描 —— 或以管理员权限重新扫描（输入一次密码）。";
+"Scan with admin" = "以管理员权限扫描";
+"This preview is stale" = "此预览已过期";
+"The scan is more than a few minutes old — caches that appeared since wouldn't have been reviewed. Rescan to get current numbers, then clean." = "扫描已是几分钟前的结果 —— 其后新出现的缓存未经审核。请重新扫描获取最新数据，再进行清理。";
+"Couldn't protect deselected items" = "无法保护已取消勾选的项目";
+"Writing the whitelist failed (%@), so the engine would clean everything it found. Nothing was cleaned." = "写入白名单失败（%@），引擎将会清理它找到的所有内容。因此什么都没有清理。";
+"Move %d items (%@) to the Trash?" = "将 %1$d 个项目（%2$@）移到废纸篓？";
+"They stay recoverable until you empty the Trash. Space frees when it empties; this run won't appear in `mo history`." = "清空废纸篓前都可恢复。空间在清空时才释放；这次运行不会出现在 `mo history` 中。";
+"Moving caches to Trash" = "正在将缓存移到废纸篓";
+"%d moved · %d failed" = "%1$d 项已移动 · %2$d 项失败";
+"Moved %d items (%@) to the Trash." = "已将 %1$d 个项目（%2$@）移到废纸篓。";
+"Moved %d items; %d were locked or already gone." = "已移动 %1$d 个项目；%2$d 个被锁定或已不存在。";
+"Moved to Trash" = "已移到废纸篓";
+"Freed %@" = "已释放 %@";
+"Cleaned %@" = "已清理 %@";
+"%@ free now" = "现有 %@ 可用";
+"%@ items" = "%@ 项";
+"Done" = "完成";
+
+/* Clean — review screen */
+"Ready to clean" = "准备清理";
+"Close %@ to clean another %@ · %d items" = "关闭 %1$@ 可再清理 %2$@ · %3$d 项";
+"Everything below came from the scan — untick anything you'd rather keep." = "以下全部来自扫描结果 —— 取消勾选想保留的内容即可。";
+"Back to results" = "返回结果";
+"Select all" = "全选";
+"Deselect all" = "全部取消";
+"%@, %d of %d selected, %@ of %@" = "%1$@，已选 %2$d 项，共 %3$d 项，%4$@ / %5$@";
+"Toggle category" = "切换类别";
+"%d items" = "%d 项";
+"Safe" = "安全";
+"App open" = "应用运行中";
+"System busy" = "系统占用中";
+"The scan already excluded unsafe paths — everything here is removable cache data." = "扫描已排除不安全路径 —— 这里的内容都是可移除的缓存数据。";
+"This app is running; its cache is locked. Quit the app and rescan to clean it." = "此应用正在运行，缓存被锁定。退出应用并重新扫描即可清理。";
+"A system service is using this path right now." = "系统服务正在使用此路径。";
+"Always skip this" = "永久跳过此项";
+"Permanently clean · %@" = "永久清理 · %@";
+"Move to Trash · %@" = "移到废纸篓 · %@";
+"selected" = "已选";
+"not selected" = "未选";
+"User essentials" = "用户基础项";
+"App caches" = "应用缓存";
+"Browsers" = "浏览器";
+"Cloud & Office" = "云与办公";
+"Developer tools" = "开发者工具";
+"AI Tools" = "AI 工具";
+"Communication" = "通讯";
+"Applications" = "应用程序";
+"Virtualization" = "虚拟化";
+"Application Support" = "Application Support";
+"App leftovers" = "应用残留";
+"System-managed caches and logs. Regenerated as macOS needs them." = "系统管理的缓存与日志。macOS 需要时会重新生成。";
+"App temporary files. Regenerated next launch." = "应用临时文件。下次启动时重新生成。";
+"Page caches — sites load a touch slower on first visit." = "页面缓存 —— 首次访问网站会稍慢。";
+"Build and package caches. First build will be slower." = "构建与软件包缓存。首次构建会变慢。";
+"Model and tool caches. Re-downloaded on next use." = "模型与工具缓存。下次使用时重新下载。";
+"Message media caches. Re-fetched when you scroll back." = "消息媒体缓存。回看时会重新拉取。";
+"VM and container caches. Images re-pull on next run." = "虚拟机与容器缓存。镜像在下次运行时重新拉取。";
+"Sync caches. Files re-sync from the cloud." = "同步缓存。文件会从云端重新同步。";
+"Files from apps that are no longer installed." = "来自已卸载应用的文件。";
+"Cache files. Regenerated as needed." = "缓存文件。按需重新生成。";
+
+/* Optimize — live ticker */
+"Refreshing…" = "刷新中…";
+"Previewing…" = "预览中…";
+"Working…" = "处理中…";
+"Working on %@, %d tasks done" = "正在处理 %1$@，已完成 %2$d 项任务";
+
+/* Software — uninstall review */
+"Startup" = "启动项";
+"Last Used" = "最近使用";
+"Refresh" = "刷新";
+"Sort by %@" = "按%@排序";
+"ascending" = "升序";
+"descending" = "降序";
+"%d files · %@" = "%1$d 个文件 · %2$@";
+"Select %@" = "选择 %@";
+"Enumerating files…" = "正在枚举文件…";
+"Auto selected" = "自动选中";
+"Needs review" = "需要确认";
+"Not selected by default. Review these before removing." = "默认未选中。移除前请先确认。";
+"Toggle %@ group" = "切换“%@”组";
+"Couldn't enumerate this app's files — Remove uses the engine's full uninstall." = "无法枚举此应用的文件 —— “移除”将使用引擎的完整卸载。";
+"Application" = "应用程序";
+"App Support" = "App Support";
+"Preferences" = "偏好设置";
+"Container" = "容器";
+"Group Container" = "群组容器";
+"Helper" = "辅助程序";
+"Login Item" = "登录项";
+"Temporary Cache" = "临时缓存";
+"Other" = "其他";
+"%@ · 1 app · %@" = "%1$@ · 1 个应用 · %2$@";
+"%d apps · %@" = "%1$d 个应用 · %2$@";
+"Remove %d" = "移除 %d 项";
+"Remove %d app?" = "移除 %d 个应用？";
+"Remove %d apps?" = "移除 %d 个应用？";
+"%d reviewed files" = "%d 个已确认的文件";
+"Reviewed subsets are trashed by Burrow directly and appear in Burrow's Activity log, not `mo history`." = "经确认的部分文件由 Burrow 直接移到废纸篓，记录在 Burrow 的活动日志中，而非 `mo history`。";
+"Removing reviewed files" = "正在移除已确认的文件";
+
+/* Software — startup segment */
+"Launch agent" = "启动代理";
+"Launch daemon" = "启动守护进程";
+"Unreadable configuration" = "配置无法读取";
+"Program is missing" = "程序已缺失";
+"Bundled inside an app; review only" = "内置于应用中；仅供查看";
+"System-wide; review only" = "系统级；仅供查看";
+"Yours; remove the file to disable" = "属于你；删除文件即可停用";
+"Your launch agents" = "你的启动代理";
+"System launch agents" = "系统启动代理";
+"System launch daemons" = "系统启动守护进程";
+"Reading startup items…" = "正在读取启动项…";
+"Search items" = "搜索项目";
+"Error" = "错误";
+"Review only — managed by its app or the system." = "仅供查看 —— 由其应用或系统管理。";
+"Review only" = "仅供查看";
+"All" = "全部";
+"Launch agents" = "启动代理";
+"Launch daemons" = "启动守护进程";
+"Problems" = "问题";
+
+/* Software — updates */
+"App Store" = "App Store";
+"Sparkle" = "Sparkle";
+"Electron" = "Electron";
+"Homebrew" = "Homebrew";
+"Checking update sources…" = "正在检查更新来源…";
+"Sources detected locally — checking versions contacts Apple and vendor servers." = "更新来源已在本地检测 —— 检查版本会联系 Apple 与供应商服务器。";
+"Check for updates" = "检查更新";
+"Check again" = "再次检查";
+"Update all brews" = "更新所有 brew 项";
+"Updates available" = "可用更新";
+"Up to date" = "已是最新";
+"Not checkable" = "无法检查";
+"No App Store receipt, Sparkle feed, or known updater inside these bundles." = "这些应用中没有 App Store 凭据、Sparkle 源或已知的更新器。";
+"Apps with an update mechanism" = "具备更新机制的应用";
+"active now" = "正在活跃";
+"opened %@" = "%@打开过";
+"never opened" = "从未打开";
+
+/* Settings — tabs & general */
+"General" = "通用";
+"Maintenance" = "维护";
+"Menu Bar" = "菜单栏";
+"Advanced" = "高级";
+"Close settings" = "关闭设置";
+"Permissions" = "权限";
+"On. Burrow can reach system and app caches." = "已开启。Burrow 可以触达系统与应用缓存。";
+"Off. Safe scan in use — most system caches stay out of reach." = "已关闭。当前使用安全扫描 —— 大多数系统缓存无法触达。";
+"Startup & window" = "启动与窗口";
+"Launch at Login" = "登录时启动";
+"Starts Burrow quietly at login so sampling and the menu-bar monitor are always on." = "登录时静默启动 Burrow，让采样与菜单栏监控始终在线。";
+"Hide Dock Icon when window closes" = "关闭窗口时隐藏 Dock 图标";
+"On: Burrow retreats to the menu bar when you close the window. Off: it stays in the Dock. With the menu-bar icon hidden, the Dock icon always stays — otherwise the app would be unreachable." = "开启：关闭窗口后 Burrow 退回菜单栏。关闭：保留在 Dock 中。当菜单栏图标隐藏时，Dock 图标始终保留 —— 否则应用将无法访问。";
+"Skip Intro Screens" = "跳过开场界面";
+"Jumps past the tools' idle screens where a read-only preview can start right away (Clean starts its scan when you open the tab)." = "跳过工具的空闲界面，让只读预览立即开始（打开“清理”标签即开始扫描）。";
+"About" = "关于";
+"Source on GitHub" = "GitHub 源码";
+
+/* Settings — maintenance */
+"Protected Items" = "受保护项目";
+"Paths and glob patterns Mole never cleans — `mo clean` and `mo optimize` skip anything matching them. “Always skip this” in the Clean review writes here too." = "Mole 永不清理的路径与通配模式 —— `mo clean` 与 `mo optimize` 会跳过所有匹配项。清理审核中的“永久跳过此项”也写入这里。";
+"No protected items yet." = "暂无受保护项目。";
+"Add a path or glob pattern" = "添加路径或通配模式";
+"Add" = "添加";
+"Remove %@ from protected items" = "从受保护项目中移除 %@";
+"Cache removal" = "缓存移除方式";
+"Removal mode" = "移除模式";
+"Permanent" = "永久删除";
+"Trash" = "废纸篓";
+"Permanent (default): the engine removes caches outright — freed space is real, immediately. Trash: reviewed, ticked paths go to the Trash instead — recoverable, but space frees only when Trash empties, and the run won't appear in `mo history`." = "永久删除（默认）：引擎直接移除缓存 —— 释放的空间立即生效。废纸篓：经审核勾选的路径改为移入废纸篓 —— 可恢复，但空间在清空废纸篓后才释放，且这次运行不会出现在 `mo history` 中。";
+
+/* Settings — menu bar */
+"Display" = "显示方式";
+"Icon" = "图标";
+"Metrics" = "指标";
+"Metrics shows live CPU and memory next to the mark, refreshed with the sampler." = "“指标”在标志旁显示实时 CPU 与内存，随采样器刷新。";
+"Keyboard shortcuts" = "键盘快捷键";
+"Keep Screen On" = "保持屏幕常亮";
+"Clean Screen" = "清洁屏幕";
+"System-wide. Click a chip, press a combination with ⌃, ⌥ or ⌘; Esc cancels, × clears." = "全局生效。点击快捷键芯片，按下含 ⌃、⌥ 或 ⌘ 的组合键；Esc 取消，× 清除。";
+"Block keys while wiping" = "擦拭时屏蔽按键";
+"Accessibility" = "辅助功能";
+"Needed to swallow key presses while you wipe. Esc always exits." = "需要它才能在擦拭时吞掉按键。Esc 始终可退出。";
+"Off: Clean Screen still works, keys just aren't blocked. Esc always exits either way." = "关闭：清洁屏幕仍可用，只是不屏蔽按键。无论如何 Esc 始终可退出。";
+"Press keys…" = "请按下按键…";
+"Record" = "录制";
+"Record shortcut" = "录制快捷键";
+"Clear shortcut" = "清除快捷键";
+"None" = "无";
+
+/* Menu-bar tools */
+"15 minutes" = "15 分钟";
+"30 minutes" = "30 分钟";
+"1 hour" = "1 小时";
+"2 hours" = "2 小时";
+"Until turned off" = "直到手动关闭";
+"Turn Off" = "关闭";
+"Check for Updates…" = "检查更新…";
+"Couldn't check for updates" = "无法检查更新";
+"GitHub didn't answer. Try again later, or open the releases page." = "GitHub 未响应。请稍后再试，或打开发布页面。";
+"Update available" = "有可用更新";
+"Burrow %@ is available (you have %@). Update with `brew upgrade --cask burrow`, or open the release page." = "Burrow %1$@ 已发布（当前为 %2$@）。可用 `brew upgrade --cask burrow` 更新，或打开发布页面。";
+"Burrow %@ is available (you have %@). Download it from the release page." = "Burrow %1$@ 已发布（当前为 %2$@）。请从发布页面下载。";
+"You're up to date" = "已是最新版本";
+"Burrow %@ is the latest release." = "Burrow %@ 即为最新发布版本。";
+"Open Release Page" = "打开发布页面";
+"Mole engine %@" = "Mole 引擎 %@";
+"not found" = "未找到";
+"Releases" = "发布版本";
+"What telemetry is collected" = "收集哪些遥测数据";
+"Licenses" = "许可证";
+"Wipe away — press Esc when you're done." = "尽情擦拭 —— 完成后按 Esc。";
+
+/* Status dashboard */
+"%d fans" = "%d 个风扇";
+"macOS manages speed" = "由 macOS 管理转速";
+"No fan data on this Mac" = "此 Mac 无风扇数据";
+"Fan" = "风扇";
+"%d%% Health" = "健康度 %d%%";
+"%d cyc" = "%d 循环";
+"Mac" = "Mac";
+"%d percent" = "百分之 %d";
+"PWR" = "能耗";
+"Energy billed since launch (mWh)" = "自启动以来累计能耗（毫瓦时）";
+"Actions for %@" = "%@ 的操作";
+"Pin" = "置顶";
+"Unpin" = "取消置顶";
+"Copy name" = "拷贝名称";
+"Copy PID" = "拷贝 PID";
+"Quit…" = "退出…";
+"Force Kill…" = "强制结束…";
+"Force kill %@?" = "强制结束 %@？";
+"Quit %@?" = "退出 %@？";
+"SIGKILL ends it immediately — unsaved work in this process is lost." = "SIGKILL 会立即终止该进程 —— 其中未保存的工作将丢失。";
+"Sends a polite quit (SIGTERM). The process may save and exit, or ignore it." = "发送礼貌的退出请求（SIGTERM）。进程可能保存并退出，也可能忽略。";
+"Force Kill" = "强制结束";
+"Quit Process" = "退出进程";
+
+/* Menu-bar popover */
+"%@ free" = "可用 %@";
+"Health %d. Open Burrow." = "健康度 %d。打开 Burrow。";
+"up %@" = "已运行 %@";
+"%@ used · %.0f%%" = "已用 %1$@ · %2$.0f%%";
+"No fan data" = "无风扇数据";
+"Top drain — %@ · avg %.0f%% CPU over the last hour" = "耗电大户 —— %1$@ · 近一小时平均 CPU %2$.0f%%";
+"Stay Awake" = "保持唤醒";
+"Wipe" = "擦拭";
+"Eject" = "推出";
+"on" = "开";
+"Ejecting external volumes" = "正在推出外置宗卷";
+"%d ejected · %d busy" = "%1$d 个已推出 · %2$d 个占用中";
+"%@ cleaned · %d uninstalled · %d optimized" = "已清理 %1$@ · 已卸载 %2$d · 已优化 %3$d";
+"Clean Watch" = "清理统计";
+
+/* Analyze progress */
+"Mapping your folders" = "正在为文件夹绘图";
+"Measuring…" = "测量中…";
+"Scanning %@, %d of %d" = "正在扫描 %1$@，第 %2$d 项，共 %3$d 项";
+"Scanning" = "扫描中";

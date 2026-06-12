@@ -41,11 +41,11 @@ struct StatusView: View {
                     HStack(spacing: 13) {
                         DiskCard(s: s, liveRead: io.readMBs, liveWrite: io.writeMBs, minHeight: row2H)
                         netTile(s).frame(minHeight: row2H)
-                        BatteryCard(s: s, minHeight: row2H)
+                        fanTile(s).frame(minHeight: row2H)
                     }
-                    if let bt = s.bluetooth?.filter({ $0.connected }), !bt.isEmpty {
-                        BluetoothStrip(devices: bt)
-                    }
+                    // Battery card carries the ring gauges (Mac + connected
+                    // Bluetooth devices) — the old standalone BT strip folded in.
+                    BatteryCard(s: s, minHeight: row2H)
                     ProcessCard(model: model)
                 } else {
                     waiting
@@ -109,12 +109,53 @@ struct StatusView: View {
         let hasUsage = (g?.usage ?? -1) >= 0
         let name = (g?.name ?? s.hardware.cpuModel).replacingOccurrences(of: "Apple ", with: "")
         let cores = (g?.coreCount ?? 0)
+        // Corner chip: GPU die temp when the SMC reports one (Intel /
+        // some configs) — never invented on Apple Silicon.
+        var chip: (String, Color)? = nil
+        if let t = s.thermal?.gpuTemp, t > 0 { chip = (String(format: "%.0f°C", t), Brand.orange) }
         return ValueTile(
             eyebrow: "GPU", glyph: "cpu.fill", accent: Brand.orange,
             value: hasUsage ? String(format: "%.0f", g!.usage) : "—",
             unit: hasUsage ? "%" : "",
-            chip: nil, values: model.gpuHist, chartStyle: .area,
+            chip: chip, values: model.gpuHist, chartStyle: .area,
             footnote: cores > 0 ? "\(name) · \(cores) cores" : name)
+    }
+
+    /// FAN tile — v1 read-only (design 3.2): RPM + "macOS manages
+    /// speed". Mode controls wait for the privileged helper; no disabled
+    /// placebo buttons. fanCount 0 means mole couldn't read any fan
+    /// (normal on Apple Silicon) → say "no fan data", not "idle".
+    private func fanTile(_ s: MoleStatus) -> some View {
+        let fanCount = s.thermal?.fanCount ?? 0
+        let rpm = s.thermal?.fanSpeed ?? 0
+        return GlassCard(minHeight: row2H) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    // Neutral on purpose — see PowerAccent (Format.swift).
+                    Eyebrow(text: "Fan", glyph: "fan", color: PowerAccent.fan)
+                    Spacer()
+                    if fanCount > 0 {
+                        Chip(text: String(format: NSLocalizedString("%d fans", comment: ""), fanCount),
+                             color: Brand.textSecondary)
+                    }
+                }
+                if fanCount > 0 {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(verbatim: "\(rpm)").font(Brand.mono(26, .semibold)).foregroundStyle(Brand.textPrimary)
+                        Text("RPM").font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
+                        if rpm == 0 {
+                            Text("Idle").font(Brand.sans(11)).foregroundStyle(Brand.textTertiary).padding(.leading, 4)
+                        }
+                    }
+                } else {
+                    Text("—").font(Brand.mono(26, .semibold)).foregroundStyle(Brand.textTertiary)
+                }
+                Spacer(minLength: 2)
+                Text(fanCount > 0 ? NSLocalizedString("macOS manages speed", comment: "")
+                                  : NSLocalizedString("No fan data on this Mac", comment: ""))
+                    .font(Brand.mono(10)).foregroundStyle(Brand.textTertiary).lineLimit(1)
+            }
+        }
     }
 
     private func netTile(_ s: MoleStatus) -> ValueTile {
@@ -131,7 +172,9 @@ struct StatusView: View {
         return ValueTile(
             eyebrow: "Network", glyph: "network", accent: Brand.green,
             value: value, unit: unit, chip: chip,
-            values: useLive ? io.netHistory : model.netHist, chartStyle: .area,
+            // Tile sparkline = the recent 10 min of the 1 s ring; the full
+            // hour lives in the History tab (it flattened the tile).
+            values: useLive ? io.netHistory(lastSeconds: 600) : model.netHist, chartStyle: .area,
             footnote: "↓ \(Fmt.rate(rx))  ↑ \(Fmt.rate(tx)) · \(snapNet?.name ?? "—") · \(snapNet?.ip ?? "—")")
     }
 }
@@ -170,7 +213,9 @@ struct HealthCard: View {
 
     private var specLine: String {
         let cpu = s.hardware.cpuModel.replacingOccurrences(of: "Apple ", with: "")
-        return "\(cpu) · \(s.hardware.totalRam)"
+        let osText = Fmt.macOSVersion(s.hardware.osVersion)
+        let os = osText.isEmpty ? "" : " · \(osText)"
+        return "\(cpu) · \(s.hardware.totalRam)\(os)"
     }
     private var rating: String { HealthRating.label(s.healthScore) }
     private var ratingColor: Color { HealthRating.color(s.healthScore) }
@@ -217,7 +262,6 @@ struct DiskCard: View {
         let usedB = Double(disk?.used ?? 0)
         let freeGB = Fmt.gib(totalB - usedB)
         let pct = disk?.usedPercent ?? 0
-        let barColor: Color = pct >= 90 ? Brand.red : Brand.blue
         return GlassCard(minHeight: minHeight) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -229,7 +273,7 @@ struct DiskCard: View {
                     Text(Fmt.gb(freeGB)).font(Brand.mono(26, .semibold)).foregroundStyle(Brand.textPrimary)
                     Text("GB free").font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
                 }
-                ProgressBar(fraction: pct / 100, color: barColor)
+                LowSpaceBar(fraction: pct / 100)
                 Spacer(minLength: 2)
                 Text(String(format: NSLocalizedString("%.0f%% used · R %.0f · W %.0f MB/s", comment: ""),
                             pct, liveRead ?? s.diskIO.readRate, liveWrite ?? s.diskIO.writeRate))
@@ -250,35 +294,126 @@ struct BatteryCard: View {
             if let b = s.batteries?.first {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Eyebrow(text: "Battery", glyph: "battery.100", color: color(b))
+                        // Accent semantics live in PowerAccent (Format.swift):
+                        // red = low, green = charging/full, amber = discharging.
+                        Eyebrow(text: "Battery", glyph: "battery.100",
+                                color: PowerAccent.battery(percent: b.percent, status: b.status))
                         Spacer()
-                        Chip(text: b.health, color: b.health == "Good" ? Brand.green : Brand.gold)
+                        Chip(text: String(format: NSLocalizedString("%d%% Health", comment: ""), b.capacity),
+                             color: b.health == "Good" ? Brand.green : Brand.gold)
                     }
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(String(format: "%.0f", b.percent)).font(Brand.mono(26, .semibold)).foregroundStyle(Brand.textPrimary)
-                        Text("%").font(Brand.mono(12)).foregroundStyle(Brand.textSecondary)
-                    Text(NSLocalizedString(b.status, comment: "")).font(Brand.sans(11)).foregroundStyle(Brand.textTertiary).padding(.leading, 4)
+                    HStack(alignment: .center, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text(String(format: "%.0f", b.percent)).font(Brand.mono(26, .semibold)).foregroundStyle(Brand.textPrimary)
+                                Text("%").font(Brand.mono(12)).foregroundStyle(Brand.textSecondary)
+                                Text(NSLocalizedString(b.status, comment: "")).font(Brand.sans(11)).foregroundStyle(Brand.textTertiary).padding(.leading, 4)
+                            }
+                            Text(batteryFootnote(b))
+                                .font(Brand.mono(10)).foregroundStyle(Brand.textTertiary).lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        // Ring gauges: the Mac, then each connected
+                        // Bluetooth device that reports a battery.
+                        HStack(spacing: 10) {
+                            RingGauge(percent: b.percent,
+                                      color: PowerAccent.battery(percent: b.percent, status: b.status),
+                                      glyph: "laptopcomputer", label: NSLocalizedString("Mac", comment: ""))
+                            ForEach(Array(bluetoothWithBattery.prefix(4).enumerated()), id: \.offset) { _, device in
+                                RingGauge(percent: Double(device.batteryPercent ?? 0),
+                                          color: PowerAccent.level(device.batteryPercent ?? 0),
+                                          glyph: BluetoothStrip.glyph(device.name),
+                                          label: device.name)
+                            }
+                        }
                     }
-                    ProgressBar(fraction: b.percent / 100, color: color(b))
-                    Spacer(minLength: 2)
-                    Text(String(format: NSLocalizedString("%@ left · %d cyc · %d%% cap", comment: ""),
-                                b.timeLeft, b.cycleCount, b.capacity))
-                        .font(Brand.mono(10)).foregroundStyle(Brand.textTertiary).lineLimit(1)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Eyebrow(text: "Power", glyph: "powerplug", color: Brand.green)
                     Spacer()
-                    Text("AC Power").font(Brand.mono(20, .semibold)).foregroundStyle(Brand.textPrimary)
+                    HStack(spacing: 16) {
+                        Text("AC Power").font(Brand.mono(20, .semibold)).foregroundStyle(Brand.textPrimary)
+                        Spacer()
+                        HStack(spacing: 10) {
+                            ForEach(Array(bluetoothWithBattery.prefix(5).enumerated()), id: \.offset) { _, device in
+                                RingGauge(percent: Double(device.batteryPercent ?? 0),
+                                          color: PowerAccent.level(device.batteryPercent ?? 0),
+                                          glyph: BluetoothStrip.glyph(device.name),
+                                          label: device.name)
+                            }
+                        }
+                    }
                     Spacer()
                 }
             }
         }
     }
 
-    private func color(_ b: BatteryStatus) -> Color {
-        if b.percent <= 20 { return Brand.red }
-        return b.status == "charging" ? Brand.green : Brand.gold
+    private var bluetoothWithBattery: [BluetoothDevice] {
+        (s.bluetooth ?? []).filter { $0.connected && $0.batteryPercent != nil }
+    }
+
+    private func batteryFootnote(_ b: BatteryStatus) -> String {
+        var parts: [String] = []
+        if !b.timeLeft.isEmpty { parts.append(String(format: NSLocalizedString("%@ left", comment: ""), b.timeLeft)) }
+        parts.append(String(format: NSLocalizedString("%d cyc", comment: ""), b.cycleCount))
+        if let t = s.thermal?.batteryTemp, t > 0 { parts.append(String(format: "%.0f°C", t)) }
+        return parts.joined(separator: " · ")
+    }
+
+    // (Accent rules live in PowerAccent — Format.swift — shared with the HUD.)
+}
+
+/// Small ring gauge — Mac battery + Bluetooth devices on the battery
+/// card (3.2) and the popover (3.5).
+struct RingGauge: View {
+    let percent: Double
+    let color: Color
+    let glyph: String
+    let label: String
+    var size: CGFloat = 40
+
+    var body: some View {
+        VStack(spacing: 3) {
+            ZStack {
+                Circle().stroke(Color.white.opacity(0.10), lineWidth: 4)
+                Circle()
+                    .trim(from: 0, to: CGFloat(max(0, min(percent, 100))) / 100)
+                    .stroke(color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: glyph).font(.system(size: size * 0.3)).foregroundStyle(Brand.textSecondary)
+            }
+            .frame(width: size, height: size)
+            Text(verbatim: "\(Int(percent))%").font(Brand.mono(9)).foregroundStyle(Brand.textTertiary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(String(format: NSLocalizedString("%d percent", comment: ""), Int(percent)))
+    }
+}
+
+/// Disk usage bar whose fill shifts from calm blue through amber to red
+/// as free space runs out (design 3.2).
+struct LowSpaceBar: View {
+    let fraction: Double   // used fraction 0…1
+
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Brand.trackFill)
+                Capsule()
+                    .fill(LinearGradient(colors: gradientColors, startPoint: .leading, endPoint: .trailing))
+                    .frame(width: g.size.width * CGFloat(max(0, min(fraction, 1))))
+            }
+        }
+        .frame(height: 6)
+    }
+
+    private var gradientColors: [Color] {
+        if fraction >= 0.9 { return [Brand.amber, Brand.red] }
+        if fraction >= 0.75 { return [Brand.blue, Brand.amber] }
+        return [Brand.blue, Brand.blue]
     }
 }
 
@@ -323,7 +458,7 @@ struct BluetoothStrip: View {
             Text(d.name).font(Brand.sans(12)).foregroundStyle(Brand.textPrimary).lineLimit(1)
             if let p = d.batteryPercent {
                 Text("\(p)%").font(Brand.mono(11, .semibold))
-                    .foregroundStyle(p <= 20 ? Brand.red : (p <= 40 ? Brand.gold : Brand.green))
+                    .foregroundStyle(PowerAccent.level(p))
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -331,7 +466,7 @@ struct BluetoothStrip: View {
         .overlay(Capsule().strokeBorder(Brand.hairline, lineWidth: 1))
     }
 
-    private static func glyph(_ name: String) -> String {
+    static func glyph(_ name: String) -> String {
         let n = name.lowercased()
         if n.contains("airpod") || n.contains("headphone") || n.contains("buds") || n.contains("momentum") || n.contains("wh-") { return "headphones" }
         if n.contains("mouse") { return "magicmouse" }
@@ -344,8 +479,11 @@ struct BluetoothStrip: View {
 
 // MARK: - Process table
 
-enum ProcSort { case name, cpu, mem, pid }
+enum ProcSort { case name, cpu, mem, pid, pwr }
 
+/// The process table: the FULL live process set (ProcessSampler/`ps`,
+/// hundreds of rows — the engine snapshot only carries a top five),
+/// sortable and pinnable, scrolling inside a bounded-height card.
 struct ProcessCard: View {
     @ObservedObject var model: StatusModel
 
@@ -355,11 +493,21 @@ struct ProcessCard: View {
             VStack(spacing: 0) {
                 header(count: rows.count)
                 Rectangle().fill(Brand.hairline).frame(height: 1)
-                ForEach(rows, id: \.pid) { p in
-                    ProcRow(p: p, pinned: model.pinned.contains(p.pid)) {
-                        model.togglePin(p.pid)
+                // The table scrolls on its own, under a sticky header,
+                // independent of the page scroll (design 3.2).
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(rows, id: \.pid) { p in
+                            ProcRow(p: p,
+                                    pinned: model.pinned.contains(p.pid),
+                                    energy: model.energies[p.pid]) {
+                                model.togglePin(p.pid)
+                            }
+                        }
                     }
                 }
+                .scrollIndicators(.automatic)
+                .frame(height: 380)
             }
         }
     }
@@ -370,7 +518,9 @@ struct ProcessCard: View {
             Spacer(minLength: 8)
             sortButton("PID", .pid).frame(width: 54, alignment: .trailing)
             sortButton("CPU", .cpu).frame(width: 92, alignment: .trailing)
-            sortButton("MEM", .mem).frame(width: 54, alignment: .trailing)
+            sortButton("PWR", .pwr).frame(width: 44, alignment: .trailing)
+            sortButton("MEM", .mem).frame(width: 64, alignment: .trailing)
+            Color.clear.frame(width: 20)   // the … column
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
@@ -388,12 +538,15 @@ struct ProcessCard: View {
             .foregroundStyle(model.sortKey == key ? Brand.textSecondary : Brand.textTertiary)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(String(format: NSLocalizedString("Sort by %@", comment: ""), title))
     }
 }
 
 struct ProcRow: View {
     let p: ProcessInfo
     let pinned: Bool
+    /// Cumulative billed energy (nJ) — nil renders "—", never estimated.
+    var energy: UInt64? = nil
     let onPin: () -> Void
     @State private var hover = false
 
@@ -413,8 +566,13 @@ struct ProcRow: View {
                     .frame(width: 38, alignment: .trailing)
             }
             .frame(width: 92, alignment: .trailing)
-            Text(String(format: "%.1f%%", p.memory)).font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
-                .frame(width: 54, alignment: .trailing)
+            Text(ProcessActions.energyText(nanojoules: energy))
+                .font(Brand.mono(11)).foregroundStyle(Brand.textTertiary)
+                .frame(width: 44, alignment: .trailing)
+                .help(NSLocalizedString("Energy billed since launch (mWh)", comment: ""))
+            Text(memText).font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
+                .frame(width: 64, alignment: .trailing)
+            rowMenu
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -422,6 +580,64 @@ struct ProcRow: View {
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture { onPin() }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Absolute MB when mole reports resident bytes; percent fallback.
+    private var memText: String {
+        if let bytes = p.memoryBytes, bytes > 0 {
+            return Fmt.bytes(Int64(bytes))
+        }
+        return String(format: "%.1f%%", p.memory)
+    }
+
+    /// Per-row "…" menu: pin, reveal, copy; Quit / Force Kill for
+    /// own-user processes only — root rows stay read-only.
+    private var rowMenu: some View {
+        Menu {
+            Button(pinned ? NSLocalizedString("Unpin", comment: "") : NSLocalizedString("Pin", comment: "")) { onPin() }
+            Button(NSLocalizedString("Reveal in Finder", comment: "")) {
+                if let path = ProcessActions.executablePath(pid: p.pid) {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                }
+            }
+            Button(NSLocalizedString("Copy name", comment: "")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(p.name, forType: .string)
+            }
+            Button(NSLocalizedString("Copy PID", comment: "")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("\(p.pid)", forType: .string)
+            }
+            if ProcessActions.isOwnProcess(pid: p.pid) {
+                Divider()
+                Button(NSLocalizedString("Quit…", comment: ""), role: .destructive) { confirmQuit(force: false) }
+                Button(NSLocalizedString("Force Kill…", comment: ""), role: .destructive) { confirmQuit(force: true) }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11)).foregroundStyle(Brand.textTertiary)
+                .frame(width: 20, height: 20).contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 20)
+        .accessibilityLabel(String(format: NSLocalizedString("Actions for %@", comment: ""), p.name))
+    }
+
+    private func confirmQuit(force: Bool) {
+        let alert = NSAlert()
+        alert.messageText = force
+            ? String(format: NSLocalizedString("Force kill %@?", comment: ""), p.name)
+            : String(format: NSLocalizedString("Quit %@?", comment: ""), p.name)
+        alert.informativeText = force
+            ? NSLocalizedString("SIGKILL ends it immediately — unsaved work in this process is lost.", comment: "")
+            : NSLocalizedString("Sends a polite quit (SIGTERM). The process may save and exit, or ignore it.", comment: "")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: force ? NSLocalizedString("Force Kill", comment: "") : NSLocalizedString("Quit Process", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Cancel", comment: ""))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if force { ProcessActions.forceKill(pid: p.pid) } else { ProcessActions.quit(pid: p.pid) }
     }
 
     private var cpuBar: some View {
@@ -493,11 +709,19 @@ final class StatusModel: ObservableObject {
     @Published var sortKey: ProcSort = .cpu
     @Published var sortAsc = false
     @Published var pinned: Set<Int> = []
+    /// pid → cumulative billed energy (nJ), refreshed with the process list.
+    @Published var energies: [Int: UInt64] = [:]
+    /// The full live process list (ProcessSampler/`ps`), refreshed on the
+    /// 2 s tick off-main. Empty until the first pass (or on spawn failure)
+    /// — the table then falls back to the snapshot's engine top five.
+    @Published var processes: [ProcessInfo] = []
 
     private let db: DB
     private let live: LiveFeed
     private var liveTimer: Timer?
     private var histTimer: Timer?
+    /// Drop overlapping `ps` passes if one ever outlives the 2 s tick.
+    private var samplingProcesses = false
 
     init(db: DB, live: LiveFeed) {
         self.db = db
@@ -530,13 +754,16 @@ final class StatusModel: ObservableObject {
     }
 
     func sortedProcesses() -> [ProcessInfo] {
-        let procs = snap?.topProcesses ?? []
+        let procs = processes.isEmpty ? (snap?.topProcesses ?? []) : processes
         let sorted = procs.sorted { a, b in
             switch sortKey {
             case .name: return sortAsc ? a.name < b.name : a.name > b.name
             case .cpu:  return sortAsc ? a.cpu < b.cpu : a.cpu > b.cpu
             case .mem:  return sortAsc ? a.memory < b.memory : a.memory > b.memory
             case .pid:  return sortAsc ? a.pid < b.pid : a.pid > b.pid
+            case .pwr:
+                let ea = energies[a.pid] ?? 0, eb = energies[b.pid] ?? 0
+                return sortAsc ? ea < eb : ea > eb
             }
         }
         let pin = sorted.filter { pinned.contains($0.pid) }
@@ -546,6 +773,32 @@ final class StatusModel: ObservableObject {
 
     private func refreshCurrent() {
         snap = live.lastSnapshot
+        refreshProcesses()
+    }
+
+    /// One `ps` pass + the PWR lookups, off the main thread (the spawn
+    /// blocks ~10–30 ms), published together so a row and its energy
+    /// always belong to the same pass. Best-effort PWR per pid; "—"
+    /// where the kernel says nothing (other users' processes, kernel
+    /// tasks).
+    private func refreshProcesses() {
+        guard !samplingProcesses else { return }
+        samplingProcesses = true
+        let fallback = snap?.topProcesses ?? []
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let sampled = ProcessSampler.sample()
+            let rows = sampled.isEmpty ? fallback : sampled
+            var out: [Int: UInt64] = [:]
+            for p in rows {
+                out[p.pid] = ProcessActions.energyNanojoules(pid: p.pid)
+            }
+            Task { @MainActor in
+                guard let self else { return }
+                self.samplingProcesses = false
+                self.processes = sampled
+                self.energies = out
+            }
+        }
     }
 
     private func refreshHistory() {

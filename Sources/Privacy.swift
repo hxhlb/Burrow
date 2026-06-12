@@ -79,53 +79,6 @@ enum Privacy {
     }
 }
 
-/// Dismissible banner shown before scans that walk TCC-protected
-/// directories. Surfaces the OS mechanism (Full Disk Access) so the user
-/// grants one informed consent instead of fielding a flood of per-folder
-/// prompts. Burrow never bypasses TCC — this only points the way.
-struct FullDiskAccessNotice: View {
-    var accent: Color = Brand.green
-    /// Label for the proceed-without-granting action ("Not now" in a
-    /// non-blocking banner, "Scan anyway" when it gates a scan).
-    var continueLabel: String = "Not now"
-    var onOpenSettings: () -> Void = { Privacy.openFullDiskAccessSettings() }
-    var onContinue: () -> Void
-    /// Optional "don't ask again" — persists the dismissal.
-    var onDontAskAgain: (() -> Void)? = nil
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "lock.shield").font(.system(size: 18)).foregroundStyle(accent)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Skip the macOS permission prompts")
-                    .font(Brand.sans(13, .semibold)).foregroundStyle(Brand.textPrimary)
-                Text("Scanning system & app caches makes macOS ask once per protected folder. Grant Burrow Full Disk Access to scan smoothly — it only reads sizes through Mole and never opens that data itself.")
-                    .font(Brand.mono(10)).foregroundStyle(Brand.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 16) {
-                    Button(action: onOpenSettings) {
-                        Text("Open Full Disk Access settings")
-                            .font(Brand.sans(11, .semibold)).foregroundStyle(accent)
-                    }.buttonStyle(.plain)
-                    Button(action: onContinue) {
-                        Text(continueLabel).font(Brand.mono(10)).foregroundStyle(Brand.textSecondary)
-                    }.buttonStyle(.plain)
-                    if let onDontAskAgain {
-                        Button(action: onDontAskAgain) {
-                            Text("Don't ask again").font(Brand.mono(10)).foregroundStyle(Brand.textTertiary)
-                        }.buttonStyle(.plain)
-                    }
-                }
-                .padding(.top, 3)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(13)
-        .background(RoundedRectangle(cornerRadius: 13).fill(accent.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(accent.opacity(0.28), lineWidth: 1))
-    }
-}
-
 /// Blocking gate shown when a flood-prone scan is requested without Full
 /// Disk Access. Unlike the soft banner, this STOPS the run — otherwise
 /// macOS prompts once per protected folder. Grant FDA once and the

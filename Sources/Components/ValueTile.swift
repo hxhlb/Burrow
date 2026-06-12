@@ -19,7 +19,7 @@ struct ValueTile: View {
     let accent: Color
     let value: String
     var unit: String = ""
-    /// Rendered in the .card header only — the HUD tile never had one.
+    /// Corner status chip (design 3.2/3.5) — both variants render it.
     var chip: (String, Color)? = nil
     let values: [Double]
     var chartStyle: MiniChart.Style = .area
@@ -60,7 +60,11 @@ struct ValueTile: View {
 
     private var hud: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Eyebrow(text: eyebrow, glyph: glyph, color: accent)
+            HStack(spacing: 4) {
+                Eyebrow(text: eyebrow, glyph: glyph, color: accent)
+                Spacer(minLength: 2)
+                if let c = chip { Chip(text: c.0, color: c.1) }
+            }
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value).font(Brand.mono(15, .semibold)).foregroundStyle(Brand.textPrimary)
                 if !unit.isEmpty { Text(unit).font(Brand.mono(9)).foregroundStyle(Brand.textSecondary) }
