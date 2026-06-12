@@ -2,9 +2,9 @@
 //  HistoryView.swift
 //  Burrow
 //
-//  History window (Burrow's own value-add over mole.fit): long-range
-//  charts over the SQLite history, plus a peak-per-process table. Opened
-//  from the HUD's clock button.
+//  History window (Burrow's own long-range value-add): charts over the
+//  SQLite history, plus a peak-per-process table. Opened from the HUD's
+//  clock button.
 //
 //  Data path is unchanged from the original: range chip → DB.findRange
 //  Sampled (stride-sampled, ≤720 rows) → decode each row to MoleStatus →
@@ -225,11 +225,11 @@ struct HistoryView: View {
                 Rectangle().fill(Brand.hairline).frame(height: 1)
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 13), GridItem(.flexible(), spacing: 13)], spacing: 13) {
-                        chartCard("CPU usage", "%", [("usage", snapshot.cpuUsage, Brand.green)])
+                        chartCard("CPU usage", "%", [("usage", snapshot.cpuUsage, Brand.green)], marks: .bars)
                         chartCard("CPU load", "1m avg", [("load1", snapshot.cpuLoad1, Brand.orange)])
                         chartCard("Memory", snapshot.memoryPressure.isEmpty ? "% used" : snapshot.memoryPressure,
                                   [("used", snapshot.memoryUsed, Brand.amber)])
-                        chartCard("GPU usage", "%", [("gpu", snapshot.gpuUsage, Brand.orange)])
+                        chartCard("GPU usage", "%", [("gpu", snapshot.gpuUsage, Brand.orange)], marks: .bars)
                         chartCard("Disk I/O", "MB/s", [("read", snapshot.diskRead, Brand.blue),
                                                        ("write", snapshot.diskWrite, Color(hex: 0x6E8BEA))])
                         chartCard("Network", "MB/s", [("rx", snapshot.netRx, Brand.green),
@@ -240,7 +240,7 @@ struct HistoryView: View {
                         chartCard("Fans", snapshot.fanCount > 0 ? "RPM" : "not reported",
                                   [("fan", snapshot.fanSpeed, Color(hex: 0x6EC1E4))])
                         chartCard("Battery", "%", [("charge", snapshot.batteryPercent, Brand.green)])
-                        chartCard("Health score", "0–100", [("health", snapshot.healthScore, Brand.gold)])
+                        chartCard("Health score", "0–100", [("health", snapshot.healthScore, Brand.gold)], marks: .bars)
                         topProcessesCard
                     }
                     .padding(16)
@@ -291,8 +291,13 @@ struct HistoryView: View {
         .overlay(Capsule().strokeBorder(Brand.hairline, lineWidth: 1))
     }
 
+    /// How a chart card draws its series: continuous metrics stay lines,
+    /// discrete usage-style metrics (CPU / GPU / health) read as bars.
+    private enum ChartMarks { case line, bars }
+
     private func chartCard(_ title: String, _ subtitle: String,
-                           _ series: [(name: String, points: [ChartPoint], color: Color)]) -> some View {
+                           _ series: [(name: String, points: [ChartPoint], color: Color)],
+                           marks: ChartMarks = .line) -> some View {
         let allEmpty = series.allSatisfy { $0.points.isEmpty }
         let style = AxisStyle.forRangeMinutes(range.minutes)
         let window = Double(range.minutes * 60)
@@ -311,11 +316,22 @@ struct HistoryView: View {
                 } else {
                     Chart {
                         ForEach(series, id: \.name) { s in
-                            ForEach(HistorySegment.split(s.points, name: s.name, gap: gapThreshold)) { p in
-                                LineMark(x: .value("Time", p.time), y: .value("Value", p.value),
-                                         series: .value("Series", p.key))
-                                    .foregroundStyle(s.color)
-                                    .interpolationMethod(.monotone)
+                            if marks == .bars {
+                                // Bars keep the gap behaviour for free:
+                                // where Burrow wasn't sampling there is no
+                                // point, hence no bar — never a fill drawn
+                                // across a hole in the data.
+                                ForEach(s.points) { p in
+                                    BarMark(x: .value("Time", p.time), y: .value("Value", p.value))
+                                        .foregroundStyle(s.color.opacity(0.85))
+                                }
+                            } else {
+                                ForEach(HistorySegment.split(s.points, name: s.name, gap: gapThreshold)) { p in
+                                    LineMark(x: .value("Time", p.time), y: .value("Value", p.value),
+                                             series: .value("Series", p.key))
+                                        .foregroundStyle(s.color)
+                                        .interpolationMethod(.monotone)
+                                }
                             }
                         }
                     }
