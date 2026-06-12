@@ -81,6 +81,35 @@ jobs:
             exit 1
           fi
 
+      # Symbolicate Sentry crash/hang reports. Without the dSYM, every event's
+      # Burrow frames arrive as <unknown> ("debug information file was
+      # missing") — exactly what made the 0.6.7 "App Hanging" reports show only
+      # system frames. Runs after the tag/version check so only a real
+      # release's symbols ship; skipped (with a warning) when no token is set,
+      # matching the sign/notarize steps.
+      - name: Upload dSYMs to Sentry — skipped if no token
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: henry-zhang-r7
+          SENTRY_PROJECT: burrow
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "::warning::No SENTRY_AUTH_TOKEN — skipping dSYM upload; Sentry frames for ${{ steps.build.outputs.version }} stay unsymbolicated."
+            exit 0
+          fi
+          DSYM="build_dist/Build/Products/Release/Burrow.app.dSYM"
+          if [ ! -d "$DSYM" ]; then
+            echo "::warning::No dSYM at $DSYM — nothing to upload (Release build didn't emit one?)."
+            exit 0
+          fi
+          # From Homebrew, consistent with the xcodegen install above — this
+          # job is SHA-pinned for Actions, so sentry-cli comes from brew rather
+          # than a piped remote installer.
+          brew install sentry-cli
+          # Debug symbols only (names + line maps); no --include-sources, so no
+          # source files are ever shipped to Sentry.
+          sentry-cli debug-files upload "$DSYM"
+
       - name: Code-sign (Developer ID) — skipped if no cert
         id: sign
         env:
