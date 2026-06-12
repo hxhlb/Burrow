@@ -63,6 +63,22 @@ enum MoleCLI {
     /// optional output redirect to a (quoted) log file. The ONE builder
     /// shared by every elevated path, so the two escaping passes can't
     /// drift apart again (one runner had them, the other didn't).
+    ///
+    /// Prompt model (audited against mo 1.42, June 2026). One elevated run
+    /// = one osascript invocation = exactly ONE admin password prompt:
+    ///   * `mo` never adds prompts under us. Running as root, its
+    ///     `ensure_sudo_session` / `request_sudo_access` short-circuit on
+    ///     `sudo -n true`; its per-stage prompts (osascript password
+    ///     dialogs in lib/clean/dev.sh etc.) only fire in UN-elevated real
+    ///     runs, and every one sits behind a `DRY_RUN` early-return, so
+    ///     scans never auth at all.
+    ///   * What CAN'T be consolidated: prompts across separate runs (an
+    ///     elevated scan, then the real clean). macOS defines the
+    ///     `system.privilege.admin` right with shared=false, so the
+    ///     credential from one osascript process never carries to the
+    ///     next — re-prompting per run is OS policy, not a Burrow bug.
+    ///     Pooling them would take a resident privileged helper
+    ///     (SMAppService daemon + XPC), a deliberate non-goal for now.
     static func elevatedScript(executable: String, args: [String],
                                redirectTo logPath: String? = nil) -> String {
         func shQuote(_ s: String) -> String {
@@ -173,9 +189,12 @@ enum MoleCLI {
     }
 
     /// Run `mo <args>` ONCE with administrator rights via the macOS auth
-    /// dialog (which accepts Touch ID where the system supports it). Blocking
-    /// — call off the main thread. For one-shot privileged config like
-    /// `touchid enable/disable`, not for streamed jobs (OperationFlow does those).
+    /// dialog. That dialog is PASSWORD-ONLY: the `system.privilege.admin`
+    /// right authenticates through SecurityAgent's classic mechanism, which
+    /// never offers Touch ID — pam_tid (`mo touchid`) covers terminal
+    /// `sudo`, not this path. Blocking — call off the main thread. For
+    /// one-shot privileged config like `touchid enable/disable`, not for
+    /// streamed jobs (OperationFlow does those).
     static func runElevated(args: [String]) -> Int32 {
         guard let mo = trustedExecutable() else { return 127 }
         let script = elevatedScript(executable: mo, args: args)

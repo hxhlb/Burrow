@@ -2,13 +2,16 @@
 //  SettingsView.swift
 //  Burrow
 //
-//  Settings as a centered overlay panel with segmented tabs — General |
-//  Maintenance | Menu Bar | Advanced — and × / Esc to close. The common
-//  path (permissions, language, login, Dock) stays in the first tab;
-//  everything agentic or experimental (MCP, query server, AI, telemetry,
-//  Touch ID, engine) lives in Advanced so it can't ambush a newcomer.
-//  Same contract as ever: reads/writes the typed `Store`, surfaces
-//  `Maintenance` status, notes which changes need a relaunch.
+//  Settings as a first-class pane — the same header/typography pattern as
+//  Home and Software (capsule segments over a hairline, full-bleed) with
+//  tabs General | Maintenance | Menu Bar | Advanced. No close chrome: you
+//  leave the way you arrived, via the top nav (Esc also returns to the
+//  previous pane). The common path (permissions, language, login, Dock)
+//  stays in the first tab; everything agentic or experimental (MCP, query
+//  server, AI, telemetry, Touch ID, engine) lives in Advanced so it can't
+//  ambush a newcomer. Same contract as ever: reads/writes the typed
+//  `Store`, surfaces `Maintenance` status, notes which changes need a
+//  relaunch.
 //
 
 import SwiftUI
@@ -32,7 +35,8 @@ struct SettingsView: View {
 
     /// Wired by AppDelegate; the only consumer is "Run maintenance now".
     var onRunMaintenance: (() -> Void)?
-    /// Close the overlay (RootView returns to the previous pane).
+    /// Esc leaves Settings (RootView returns to the previous pane). The
+    /// pane has no close chrome of its own — navigation lives in TopNav.
     var onClose: (() -> Void)?
 
     @State private var tab: Tab = .general
@@ -96,6 +100,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 10)
             Rectangle().fill(Brand.hairline).frame(height: 1)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -106,14 +111,16 @@ struct SettingsView: View {
                     case .advanced:    advancedTab
                     }
                 }
-                .padding(20)
+                // Full-bleed pane, readable column: the cards cap at a
+                // comfortable measure and stay centered in wide windows.
+                .frame(maxWidth: 680)
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .padding(.bottom, 22)
+                .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
         }
-        .frame(maxWidth: 620, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.black.opacity(0.32)))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Brand.hairline, lineWidth: 1))
-        .padding(.horizontal, 40).padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onExitCommand { onClose?() }
         .onAppear {
@@ -126,31 +133,34 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Header (tabs + close)
+    // MARK: - Header (capsule segments, same pattern as Home/Software)
 
     private var header: some View {
         HStack(spacing: 12) {
-            Text("Settings").font(Brand.serif(18, .medium)).foregroundStyle(Brand.textPrimary)
+            segmented
             Spacer()
-            Picker("", selection: $tab) {
-                ForEach(Tab.allCases) { t in Text(t.label).tag(t) }
-            }
-            .labelsHidden().pickerStyle(.segmented).frame(maxWidth: 380)
-            Spacer()
-            if let onClose {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold)).foregroundStyle(Brand.textTertiary)
-                        .frame(width: 24, height: 24)
-                        .background(Circle().fill(Color.white.opacity(0.07)))
-                        .contentShape(Circle())
+        }
+    }
+
+    private var segmented: some View {
+        HStack(spacing: 2) {
+            ForEach(Tab.allCases) { t in
+                let on = t == tab
+                Button { withAnimation(.easeOut(duration: 0.14)) { tab = t } } label: {
+                    Text(t.label)
+                        .font(Brand.mono(12, on ? .semibold : .regular))
+                        .foregroundStyle(on ? Color.black : Brand.textSecondary)
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background { if on { Capsule().fill(.white) } }
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .help(NSLocalizedString("Close settings", comment: ""))
-                .accessibilityLabel(NSLocalizedString("Close settings", comment: ""))
+                .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
-        .padding(.horizontal, 18).padding(.vertical, 12)
+        .padding(3)
+        .background(Capsule().fill(Color.black.opacity(0.22)))
+        .overlay(Capsule().strokeBorder(Brand.hairline, lineWidth: 1))
     }
 
     // MARK: - General
@@ -449,7 +459,7 @@ struct SettingsView: View {
                         PillButton(title: touchIDEnabled ? "Disable" : "Enable", filled: false) { toggleTouchID() }
                     }
                 }
-                footnote("Lets `sudo` and admin prompts accept your fingerprint instead of a password, where macOS supports it. Configured via `mo touchid`; turning it on or off needs your password once.")
+                footnote("Lets `sudo` in a terminal accept your fingerprint instead of a password — including `mo` commands you run yourself. It does NOT change Burrow's own admin prompts: those go through macOS authorization, which asks for your password regardless. Configured via `mo touchid` (pam_tid); turning it on or off needs your password once.")
             }
 
             section("Mole engine", "shippingbox") {

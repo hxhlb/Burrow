@@ -37,7 +37,7 @@ struct RootView: View {
     /// access in System Settings dismisses the banner by itself.
     @State private var fdaGranted = Privacy.hasFullDiskAccess()
     @State private var fdaBannerDismissed = Store.fullDiskAccessNoticeDismissed
-    /// Where the Settings overlay's × / Esc returns to.
+    /// Where Esc in the Settings pane returns to.
     @State private var lastNonSettingsPane: Pane = .home
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
