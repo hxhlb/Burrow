@@ -494,7 +494,10 @@ struct ProcessCard: View {
                 header(count: rows.count)
                 Rectangle().fill(Brand.hairline).frame(height: 1)
                 // The table scrolls on its own, under a sticky header,
-                // independent of the page scroll (design 3.2).
+                // independent of the page scroll (design 3.2). Kept compact
+                // on purpose — ~6½ rows (each row is 30 pt: 18 pt content +
+                // 2×6 pt padding) with the half row hinting there's more to
+                // scroll, instead of one long box that dominates the page.
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(rows, id: \.pid) { p in
@@ -507,7 +510,7 @@ struct ProcessCard: View {
                     }
                 }
                 .scrollIndicators(.automatic)
-                .frame(height: 380)
+                .frame(height: 195)
             }
         }
     }
