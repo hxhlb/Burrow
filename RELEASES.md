@@ -1,75 +1,42 @@
-# Burrow 0.6.7
+# Burrow 0.7.0
 
-The biggest release yet. Burrow gets a unified **Home dashboard**, **Traditional
-Chinese** alongside Simplified and English, native **fan/temperature sensors**,
-**1-second live** net & disk charts, **Trash-from-the-treemap**, and a sharper
-**AI Explain** lens. It also gains opt-out usage analytics + crash reporting —
-documented honestly, hardened, and behind a single switch — on top of a large
-internal refactor that makes the whole app easier to trust and test.
+A polish-and-fixes release on top of the 2026-06 redesign: clearer history
+charts, accurate GPU readings, notifications when long jobs finish, and a
+friendlier first run.
 
-## New
-- **One Home dashboard.** The Burrow icon now opens Home, folding Status,
-  History, and Activity into a single live view — vitals, charts, and recent
-  jobs in one place.
-- **Bluetooth & battery on Home.** Connected Bluetooth devices and battery
-  health surface alongside the rest of your Mac's vitals.
-- **Traditional Chinese (繁體中文, Taiwan).** Plus an in-app language switch —
-  System / English / 简体中文 / 繁體中文 — so you're not tied to the system
-  language. The AI Explain lens answers in your chosen language too.
-- **Native sensors.** Real fan RPM and CPU/GPU die temperatures, read directly
-  via SMC, fill the gaps Mole leaves on Apple Silicon.
-- **1-second live charts.** A unified net + disk monitor drives Home and History
-  at the same fast cadence, so bursts actually show up instead of being averaged
-  away.
-- **Move to Trash from Analyze.** Spot a forgotten folder in the treemap and
-  send it to the Trash right there — no detour to Finder.
-- **Sharper AI Explain.** It now briefs the whole picture — current snapshot,
-  recent trend, and your recent cleanups — not just one moment.
+## Charts & metrics
+- **History charts as bars.** CPU usage, GPU usage, and health score now render
+  as clean, evenly-spaced bars across every time range — easier to read at a
+  glance than a line.
+- **Real GPU usage.** On Apple Silicon, GPU utilization is read natively and
+  persisted, so the tiles and history show the true figure instead of a flat
+  zero.
+- **Tighter live tiles.** The network sparkline windows to the last couple of
+  minutes so current bursts actually show, the GPU tile reads as bars like CPU,
+  and the fan tile gains an RPM-over-time sparkline.
+- **Compact, scrollable process table** on Status — more processes, less wasted
+  height.
 
-## Privacy & security
-- **Opt-out analytics + crash reporting, stated plainly.** Burrow now sends
-  anonymous product analytics (PostHog) and crash reports (Sentry): a random
-  install id, app/OS version, CPU type, and bucketed feature counts — **never**
-  files, paths, contents, or your metrics. It's asked once at first launch, is a
-  single switch in **Settings → Anonymous usage**, and is **inert in builds from
-  source**. Full list in [TELEMETRY.md](TELEMETRY.md).
-- **Local HTTP server tightened.** The loopback metrics server no longer sends a
-  CORS grant, so a web page in your browser can't read it; it also caps request
-  size and times out idle connections.
-- **Agents ask twice for the irreversible.** Letting an AI agent run real
-  cleanups is one opt-in; **uninstalls and permanent deletes need a second,
-  separate switch** — and a real uninstall aborts unless Mole matches exactly the
-  apps you named.
-- **Safer elevation & key storage.** Admin runs resolve only your trusted
-  Homebrew `mo`, and any hosted-AI API key now lives in the **Keychain** instead
-  of plain preferences.
+## Notifications
+- **Finish-line notices.** Get notified when a real clean, optimize, or
+  uninstall finishes — with what it freed.
+- **Opt-in smart reminders.** Optional nudges when disk space runs low, the
+  Trash is holding gigabytes, or it's been a while since your last clean. Off by
+  default and throttled so they never get chatty; toggle both in Settings.
 
-## Fixes
-- **Clear message on older Mole.** On Mole before 1.29 the treemap could fail
-  with a cryptic `/dev/tty` error; it now tells you to update Mole instead.
-- **Treemap feels right again.** Hover and click land on the correct cell, and
-  the breadcrumb "go up" works as expected.
-- **Homebrew cask installs on macOS 14+** correctly on both old and new
-  Homebrew.
-- **History database is more robust.** It survives the GUI and an agent opening
-  it at the same time instead of risking a reset, and large Mole output (Analyze,
-  the app list) no longer truncates or hangs.
+## Onboarding & Settings
+- **Engine check on first run.** Onboarding confirms the `mo` engine is
+  installed and shows its version before you start.
+- **Settings, redrawn.** A first-class Settings pane — no boxed-dialog chrome —
+  with truthful Touch ID copy (it covers terminal `sudo`, not Burrow's own
+  administrator prompts).
+- **One-click relaunch for Full Disk Access.** Grant FDA and Burrow offers to
+  relaunch right there, since macOS only applies it to a fresh launch.
 
-## Under the hood
-- A large deep-module refactor: one metrics query/aggregation layer, one snapshot
-  engine behind testable ports, one shared operation flow for Clean/Optimize, and
-  shared formatters — retiring a stack of duplicated, drift-prone code.
-- CI now runs the full test suite on every push and PR; GitHub Actions are pinned
-  to commit SHAs and dependencies to exact versions.
-- Test suite grew from 124 to 244.
-
-## Install
-```
-brew install --cask caezium/tap/burrow
-```
-Pulls in the `mole` engine and clears the Gatekeeper quarantine for you.
-Ad-hoc signed (so Full Disk Access grants stick); not yet notarized.
-
----
-Older releases: see the
-[Releases page](https://github.com/caezium/Burrow/releases).
+## Fixes & hardening
+- Clean review protects deselected items more safely: whitelist session paths
+  are glob-escaped (a path with brackets or spaces still matches itself), an
+  unreadable whitelist aborts instead of being overwritten, and the fenced
+  session is always restored when a run ends — even if you navigate away.
+- Popover height tracks its content; the Wipe action shows an armed state.
+- Deduped the doubled "macOS" in the version label.
