@@ -322,7 +322,11 @@ struct HistoryView: View {
                                 // point, hence no bar — never a fill drawn
                                 // across a hole in the data.
                                 ForEach(s.points) { p in
-                                    BarMark(x: .value("Time", p.time), y: .value("Value", p.value))
+                                    // .ratio keeps a clear gap between bars at
+                                    // any range/point-count, so a wide history
+                                    // card reads as bars, not a filled block.
+                                    BarMark(x: .value("Time", p.time), y: .value("Value", p.value),
+                                            width: .ratio(0.6))
                                         .foregroundStyle(s.color.opacity(0.85))
                                 }
                             } else {

@@ -121,11 +121,14 @@ final class BurrowNotifier: NSObject {
 
     // MARK: Completion notices
 
-    /// Called by OperationCenter.end for ops that opted in. Quiet when
-    /// the app is frontmost (the user is watching the run) or the
-    /// Settings toggle is off.
+    /// Called by OperationCenter.end for ops that opted in. Posts whenever
+    /// the Settings toggle is on — including while Burrow is frontmost: a
+    /// real clean can take minutes, the user often tabs away, and the
+    /// `willPresent` handler below lets the banner show even in-app. (The
+    /// background reminders still stay silent while active — those are
+    /// nudges, not results.)
     func operationCompleted(label: String, success: Bool, detail: String) {
-        guard !inert, Store.notifyOnCompletion, NSApp?.isActive != true else { return }
+        guard !inert, Store.notifyOnCompletion else { return }
         let content = UNMutableNotificationContent()
         content.title = String(format: success ? NSLocalizedString("%@ — done", comment: "notification title")
                                                : NSLocalizedString("%@ — failed", comment: "notification title"),
@@ -275,6 +278,15 @@ final class BurrowNotifier: NSObject {
 // MARK: - Click routing
 
 extension BurrowNotifier: UNUserNotificationCenterDelegate {
+    /// Show the banner even when Burrow is frontmost. Without this, macOS
+    /// silently drops foreground notifications — which is why completion
+    /// notices never appeared while the window was open.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
+    }
+
     /// A click brings Burrow forward; reminders that name a tool land on
     /// it (the clean nudges open Clean). Completions don't force a pane —
     /// the finished run's receipt is already on whichever tab ran it.

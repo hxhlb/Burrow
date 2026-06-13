@@ -24,7 +24,11 @@ struct OnboardingView: View {
     @State private var page = 0
     @State private var fdaGranted = Privacy.hasFullDiskAccess()
     @State private var showRelaunchHint = false
+    /// Cleaning-engine status, probed off-main (nil = still checking).
+    @State private var engine: EngineStatus?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private struct EngineStatus { let installed: Bool; let version: String? }
 
     var body: some View {
         ZStack {
@@ -71,6 +75,7 @@ struct OnboardingView: View {
                 .padding(.top, 6)
 
             VStack(spacing: 10) {
+                engineRow
                 PermissionRow(
                     title: NSLocalizedString("Full Disk Access", comment: ""),
                     benefit: NSLocalizedString("Unlocks the caches and leftovers Burrow needs to reach.", comment: ""),
@@ -102,6 +107,59 @@ struct OnboardingView: View {
             }
             .padding(24)
         }
+        .task { await probeEngine() }
+    }
+
+    /// Engine status: confirms `mo` is installed and shows its version, so
+    /// the user can see the one dependency Burrow drives is in place. (A
+    /// truly missing engine is gated before onboarding by MoleInstallView;
+    /// this row is the reassuring confirmation, with an install link as a
+    /// belt-and-braces fallback.)
+    private var engineRow: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill((engine?.installed ?? false) ? Brand.green
+                      : (engine == nil ? Color.white.opacity(0.22) : Brand.amber))
+                .frame(width: 9, height: 9)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(NSLocalizedString("Cleaning engine", comment: ""))
+                    .font(Brand.sans(13, .semibold)).foregroundStyle(Brand.textPrimary)
+                Text(engineSubtitle)
+                    .font(Brand.sans(11)).foregroundStyle(Brand.textSecondary)
+            }
+            Spacer(minLength: 12)
+            if let engine, engine.installed {
+                Chip(text: engine.version.map { "v\($0)" } ?? NSLocalizedString("Installed", comment: ""),
+                     color: Brand.green)
+            } else if engine != nil {
+                Button(NSLocalizedString("Install", comment: "")) {
+                    NSWorkspace.shared.open(MoleCLI.repoURL)
+                }
+                .buttonStyle(.plain)
+                .font(Brand.sans(11, .semibold)).foregroundStyle(Brand.amber)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Brand.cardFill))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Brand.hairline, lineWidth: 1))
+    }
+
+    private var engineSubtitle: String {
+        guard let engine else { return NSLocalizedString("Checking…", comment: "") }
+        return engine.installed
+            ? NSLocalizedString("Ready — Burrow drives it for every clean and scan.", comment: "")
+            : NSLocalizedString("Not found. Install it to enable cleaning.", comment: "")
+    }
+
+    /// Probe off the main actor — version() may spawn `mo --version`.
+    private func probeEngine() async {
+        let status: EngineStatus = await Task.detached(priority: .userInitiated) {
+            guard MoleCLI.findExecutable() != nil else { return EngineStatus(installed: false, version: nil) }
+            return EngineStatus(installed: true, version: MoleCLI.version())
+        }.value
+        engine = status
     }
 
     // MARK: - Slide 2 · free & open source
