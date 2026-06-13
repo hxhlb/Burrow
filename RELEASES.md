@@ -60,3 +60,18 @@ Settings — plus a wave of polish on top.
   "macOS" version label.
 - ~230 new strings localized in 简体中文 and 繁體中文; accessibility labels and
   Reduce Motion on every new surface.
+
+## For agents & under the hood
+- **Steadier metrics.** A single malformed sample no longer blanks the
+  dashboard — bad rows are skipped, counted, and the latest good reading is
+  used. `GET /info` and the `burrow_info` MCP tool now report decode-skip counts,
+  so you can tell at a glance whether data is flowing.
+- **One gated policy for actions.** The app and the MCP server now decide "can
+  this run?" through a single shared gate, and the agent-facing action tools
+  return a structured result summary (space freed, items, categories) alongside
+  the raw output, on a frozen, golden-tested JSON contract.
+- **Lighter History.** The History view's auto-refresh is demand-driven now — it
+  stops the moment you leave the view instead of leaving a timer running.
+- **Deeper, more testable core.** The `mo` runner (honest timeouts,
+  runner-classified auth-cancel), the metrics reader, and the actions core were
+  consolidated into deep modules with a large new test suite.

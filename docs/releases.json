@@ -36,6 +36,12 @@
           "color": "green",
           "title": "Finish-line alerts",
           "line": "Get notified when a clean, optimize or uninstall finishes, plus opt-in low-disk and Trash reminders."
+        },
+        {
+          "icon": "robot",
+          "color": "teal",
+          "title": "Sharper agent tools",
+          "line": "MCP cleanup tools share the app's gate, return structured summaries, and surface data-freshness on a stable contract."
         }
       ],
       "chips": [
@@ -44,7 +50,10 @@
         "Compact, scrollable process table",
         "Keep Screen On · Clean Screen · global shortcuts",
         "~230 strings localized in 简体中文 / 繁體中文",
-        "Truthful Touch ID copy"
+        "Truthful Touch ID copy",
+        "Dashboard survives a bad metrics sample (skipped + counted)",
+        "History auto-refresh is demand-driven — no idle timer",
+        "Deepened, test-covered mo runner / metrics / actions core"
       ]
     },
     {
