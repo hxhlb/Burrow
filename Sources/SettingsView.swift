@@ -53,6 +53,8 @@ struct SettingsView: View {
     @State private var skipIntro: Bool = Store.skipIntro
     @State private var notifyOnCompletion: Bool = Store.notifyOnCompletion
     @State private var smartReminders: Bool = Store.smartRemindersEnabled
+    @State private var autoCheckUpdates: Bool = Store.autoCheckForUpdates
+    @State private var cameraMicIndicator: Bool = Store.cameraMicIndicatorEnabled
 
     // Maintenance
     @State private var whitelistPatterns: [String] = []
@@ -245,7 +247,16 @@ struct SettingsView: View {
 
             section("About", "info.circle") {
                 infoRow("Version", appVersionText)
-                HStack {
+                toggleRow("Check for updates automatically", isOn: $autoCheckUpdates) { on in
+                    Store.autoCheckForUpdates = on
+                    if on { AppUpdate.shared.checkNow() }
+                }
+                Text("Burrow checks GitHub for new releases on launch and about once a day, and shows a banner if one is found. It never installs anything on its own.")
+                    .font(Brand.sans(11)).foregroundStyle(Brand.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    PillButton(title: "Check for Updates", filled: false) { UpdateCheck.checkNow() }
+                    PillButton(title: "About Burrow", filled: false) { AppDelegate.shared?.showAboutPanel() }
                     Spacer()
                     Link(NSLocalizedString("Source on GitHub", comment: ""),
                          destination: URL(string: "https://github.com/caezium/Burrow")!)
@@ -374,6 +385,10 @@ struct SettingsView: View {
                     }
                 }
                 footnote("Metrics shows live CPU and memory next to the mark, refreshed with the sampler.")
+                toggleRow("Show camera & mic in-use indicator", isOn: $cameraMicIndicator) {
+                    Store.cameraMicIndicatorEnabled = $0
+                }
+                footnote("A small \u{201C}in use\u{201D} chip in the popover when the camera or microphone is active — the same system signal as Control Center, so it also lights for Siri, dictation and Continuity Camera. Off by default.")
             }
 
             section("Keyboard shortcuts", "keyboard") {
@@ -526,7 +541,7 @@ struct SettingsView: View {
                     ? "Now on \(moleVersion)."
                     : (res?.stderr.isEmpty == false ? String(res!.stderr.prefix(300))
                                                     : "`mo update` exited non-zero. Try running it in a terminal.")
-                alert.runModal()
+                alert.runModalQuiet()
             }
         }
     }
@@ -574,7 +589,7 @@ struct SettingsView: View {
                     let alert = NSAlert()
                     alert.messageText = NSLocalizedString("Couldn't update Touch ID for sudo", comment: "")
                     alert.informativeText = String(format: NSLocalizedString("`mo touchid %@` didn't complete (the password prompt may have been cancelled). You can also run it in a terminal.", comment: ""), cmd)
-                    alert.runModal()
+                    alert.runModalQuiet()
                 }
             }
         }
@@ -588,7 +603,7 @@ struct SettingsView: View {
         alert.informativeText = NSLocalizedString("Burrow needs to relaunch to apply the new language.", comment: "")
         alert.addButton(withTitle: NSLocalizedString("Relaunch Now", comment: ""))
         alert.addButton(withTitle: NSLocalizedString("Later", comment: ""))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard alert.runModalQuiet() == .alertFirstButtonReturn else { return }
         let config = NSWorkspace.OpenConfiguration()
         config.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: config) { _, _ in }

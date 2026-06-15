@@ -40,6 +40,8 @@ struct RootView: View {
     @State private var fdaBannerDismissed = Store.fullDiskAccessNoticeDismissed
     /// Where Esc in the Settings pane returns to.
     @State private var lastNonSettingsPane: Pane = .home
+    /// Burrow's own self-update state — drives the top banner.
+    @ObservedObject private var appUpdate = AppUpdate.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(db: DB, producer: SnapshotProducer, feeds: FeedHub, delegate: AppDelegate?, initialPane: Pane = .home) {
@@ -47,7 +49,13 @@ struct RootView: View {
         self.producer = producer
         self.feeds = feeds
         self.delegate = delegate
-        self._pane = State(initialValue: initialPane)
+        self._pane = State(initialValue: Self.normalize(initialPane))
+    }
+
+    /// Purge/Installer fold into Clean (CleanHub), so any lingering deep-link
+    /// to those panes resolves to the merged Clean pane rather than a blank.
+    static func normalize(_ p: Pane) -> Pane {
+        (p == .tool(.purge) || p == .tool(.installer)) ? .tool(.clean) : p
     }
 
     var body: some View {
@@ -59,6 +67,13 @@ struct RootView: View {
                 TopNav(selected: $pane)
                     .padding(.top, 13)
                     .padding(.bottom, 10)
+                if let release = appUpdate.available {
+                    UpdateBanner(release: release,
+                                 onDownload: { NSWorkspace.shared.open(release.url) },
+                                 onDismiss: { appUpdate.dismiss() })
+                        .padding(.horizontal, 18).padding(.bottom, 8)
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                }
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -74,7 +89,7 @@ struct RootView: View {
         }
         .onDisappear { producer.setForeground(false) }
         .onReceive(NotificationCenter.default.publisher(for: .burrowSelectPane)) { note in
-            if let p = note.object as? Pane { pane = p }
+            if let p = note.object as? Pane { pane = Self.normalize(p) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .burrowWindowVisibility)) { note in
             if let visible = note.object as? Bool { windowVisible = visible }
@@ -98,6 +113,7 @@ struct RootView: View {
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: fdaGranted)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: appUpdate.available?.version)
     }
 
     /// Panes whose charts want live, high-cadence data. Home's Overview /
@@ -113,9 +129,7 @@ struct RootView: View {
         ZStack {
             AnalyzeView(isActive: pane == .tool(.analyze)).tabVisible(pane == .tool(.analyze))
             SoftwareView(isActive: pane == .tool(.apps)).tabVisible(pane == .tool(.apps))
-            CleanView().tabVisible(pane == .tool(.clean))
-            MoInteractiveView(.purge, isActive: pane == .tool(.purge)).tabVisible(pane == .tool(.purge))
-            MoInteractiveView(.installer, isActive: pane == .tool(.installer)).tabVisible(pane == .tool(.installer))
+            CleanHub().tabVisible(pane == .tool(.clean))
             OptimizeView().tabVisible(pane == .tool(.optimize))
 
             // Gated on window visibility too: these two carry live timers
@@ -143,5 +157,42 @@ private extension View {
     func tabVisible(_ visible: Bool) -> some View {
         self.opacity(visible ? 1 : 0)
             .allowsHitTesting(visible)
+    }
+}
+
+/// A slim top strip shown when a newer Burrow release is found (self-update
+/// is opt-in, default on). Download opens the release page; dismiss suppresses
+/// this version. Never auto-installs.
+private struct UpdateBanner: View {
+    let release: UpdateCheck.Release
+    let onDownload: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 16)).foregroundStyle(Tool.status.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(String(format: NSLocalizedString("Burrow %@ is available", comment: ""), release.version))
+                    .font(Brand.sans(13, .semibold)).foregroundStyle(Brand.textPrimary)
+                Text(UpdateCheck.installedViaHomebrew()
+                     ? NSLocalizedString("Update with `brew upgrade --cask burrow`, or open the release page.", comment: "")
+                     : NSLocalizedString("Download it from the release page.", comment: ""))
+                    .font(Brand.mono(10)).foregroundStyle(Brand.textSecondary)
+            }
+            Spacer()
+            Button(action: onDownload) {
+                Text("Download").font(Brand.sans(12, .semibold)).foregroundStyle(.black)
+                    .padding(.horizontal, 14).padding(.vertical, 6)
+                    .background(Capsule().fill(.white))
+            }.buttonStyle(.plain)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(Brand.textSecondary)
+                    .padding(6)
+            }.buttonStyle(.plain).accessibilityLabel(NSLocalizedString("Dismiss", comment: ""))
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Tool.status.accent.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Tool.status.accent.opacity(0.35), lineWidth: 1))
     }
 }

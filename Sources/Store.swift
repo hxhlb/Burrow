@@ -274,6 +274,15 @@ enum Store {
         set { d.set(newValue, forKey: "fda_notice_dismissed") }
     }
 
+    /// Whether the popover shows a camera/microphone in-use indicator.
+    /// Opt-in (off by default): detection is honest (system "in use" flag,
+    /// like Control Center) but lights for Siri/dictation/Continuity too, so
+    /// the user chooses to surface it.
+    static var cameraMicIndicatorEnabled: Bool {
+        get { d.object(forKey: "camera_mic_indicator_enabled") as? Bool ?? false }
+        set { write(newValue, "camera_mic_indicator_enabled") }
+    }
+
     // MARK: - Telemetry
 
     /// Anonymous usage + crash-reporting opt-in (active-day counts + app/OS/arch
@@ -403,6 +412,33 @@ enum Store {
     static var telemetryNoticeAcknowledged: Bool {
         get { d.object(forKey: "telemetry_notice_acknowledged") as? Bool ?? false }
         set { write(newValue, "telemetry_notice_acknowledged") }
+    }
+
+    // MARK: - App updates (Burrow's own self-update)
+
+    /// Whether Burrow checks GitHub for its own new releases on launch and
+    /// ~daily while running. ON by default — one lightweight conditional GET;
+    /// a found update is surfaced as an in-window banner + a menu-bar dot,
+    /// never auto-installed. Off makes the check fully manual (the menu item
+    /// and the Settings button still work). The periodic GitHub request is
+    /// documented in SECURITY.md.
+    static var autoCheckForUpdates: Bool {
+        get { d.object(forKey: "auto_check_for_updates") as? Bool ?? true }
+        set { write(newValue, "auto_check_for_updates") }
+    }
+
+    /// When the last background self-update check ran — throttles the
+    /// periodic check to ~daily.
+    static var lastUpdateCheckAt: Date? {
+        get { d.object(forKey: "last_update_check_at") as? Date }
+        set { write(newValue, "last_update_check_at") }
+    }
+
+    /// A found-update version the user dismissed from the banner; suppressed
+    /// until a newer one appears.
+    static var dismissedUpdateVersion: String {
+        get { d.string(forKey: "dismissed_update_version") ?? "" }
+        set { write(newValue, "dismissed_update_version") }
     }
 
     // MARK: - History view

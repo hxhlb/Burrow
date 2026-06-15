@@ -122,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             alert.informativeText = String(format: NSLocalizedString("%@\n\nThe app will quit.", comment: ""),
                                            error.localizedDescription)
             alert.alertStyle = .critical
-            alert.runModal()
+            alert.runModalQuiet()
             NSApp.terminate(nil)
             return
         }
@@ -159,6 +159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.statusBar = StatusBarController(db: db, producer: producer, delegate: self)
         }
         self.setupMainMenu()
+
+        // Background self-update: opt-in (default on), surfaces a found
+        // Burrow release as the in-window banner + a menu-bar dot. Never
+        // installs; the menu/Settings "Check for Updates" stays the manual path.
+        Task { @MainActor in AppUpdate.shared.begin() }
 
         // Crash safety for the Clean review's whitelist session: a fenced
         // block left by a previous run must never outlive it.
