@@ -295,6 +295,11 @@
 "Diagnostics" = "系統診斷";
 "Dev hygiene" = "開發清理";
 "No developer caches found." = "未發現開發者快取。";
+"ports" = "連接埠";
+"Ports" = "連接埠";
+"Listening ports" = "監聽連接埠";
+"See who's listening." = "看看誰在監聽。";
+"Quit this process?" = "退出此程序？";
 "Explain" = "解讀";
 
 /* Language switch */

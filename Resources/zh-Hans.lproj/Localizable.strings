@@ -295,6 +295,11 @@
 "Diagnostics" = "系统诊断";
 "Dev hygiene" = "开发清理";
 "No developer caches found." = "未发现开发者缓存。";
+"ports" = "端口";
+"Ports" = "端口";
+"Listening ports" = "监听端口";
+"See who's listening." = "看看谁在监听。";
+"Quit this process?" = "退出此进程？";
 "Explain" = "解读";
 
 /* Language switch */
