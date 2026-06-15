@@ -25,6 +25,7 @@ struct DevHygieneView: View {
 
     @State private var rows: [Row] = []
     @State private var scanning = true
+    @State private var clearTarget: Row?
 
     var body: some View {
         ScrollView {
@@ -51,6 +52,8 @@ struct DevHygieneView: View {
                         } label: { Image(systemName: "magnifyingglass") }
                             .buttonStyle(.plain)
                             .help(NSLocalizedString("Reveal in Finder", comment: ""))
+                        Button(NSLocalizedString("Clear", comment: "")) { clearTarget = r }
+                            .buttonStyle(.bordered)
                     }
                 }
             }
@@ -58,6 +61,20 @@ struct DevHygieneView: View {
             .padding(20)
         }
         .task { await scan() }
+        .confirmationDialog(
+            NSLocalizedString("Move this cache to the Trash?", comment: ""),
+            isPresented: Binding(get: { clearTarget != nil },
+                                 set: { if !$0 { clearTarget = nil } }),
+            presenting: clearTarget
+        ) { r in
+            Button(NSLocalizedString("Move to Trash", comment: ""), role: .destructive) {
+                try? FileManager.default.trashItem(at: URL(fileURLWithPath: r.path), resultingItemURL: nil)
+                Task { await scan() }
+            }
+            Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) {}
+        } message: { r in
+            Text("\(r.ecosystem) — \(Fmt.bytes(r.bytes))\n\(r.path)")
+        }
     }
 
     private func scan() async {

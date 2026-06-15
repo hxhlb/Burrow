@@ -295,6 +295,8 @@
 "Diagnostics" = "系统诊断";
 "Dev hygiene" = "开发清理";
 "No developer caches found." = "未发现开发者缓存。";
+"Clear" = "清理";
+"Move this cache to the Trash?" = "将此缓存移到废纸篓？";
 "ports" = "端口";
 "Ports" = "端口";
 "Listening ports" = "监听端口";
