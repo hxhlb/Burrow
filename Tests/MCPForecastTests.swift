@@ -34,7 +34,7 @@ final class MCPForecastTests: XCTestCase {
         let total: Int64 = 500_000_000_000
         let used = max(0, total - freeBytes)
         return """
-        {"collected_at":"2026-06-08T03:16:25-07:00","host":"h","platform":"darwin","uptime_seconds":100,"procs":1,
+        {"collected_at":"2026-06-08T03:16:25.068057-07:00","host":"h","platform":"darwin","uptime_seconds":100,"procs":1,
          "hardware":{"model":"Mac","cpu_model":"M","total_ram":"24 GB","disk_size":"460 GB","os_version":"26"},
          "health_score":90,"health_score_msg":"Good",
          "cpu":{"usage":10,"load1":1,"load5":1,"load15":1,"core_count":10,"logical_cpu":10},
@@ -57,8 +57,9 @@ final class MCPForecastTests: XCTestCase {
             try db.insert(prefix: MetricsStore.snapshotPrefix,
                           ts: now - (30 - d) * day, json: snapshot(freeBytes: free))
         }
-        let o = try obj(catalog.call(name: "burrow_disk_forecast", arguments: ["days": 60]))
-        let daysUntil = try XCTUnwrap((o["days_until_full"] as? NSNumber)?.doubleValue)
+        let json = try catalog.call(name: "burrow_disk_forecast", arguments: ["days": 60])
+        let o = try obj(json)
+        let daysUntil = try XCTUnwrap((o["days_until_full"] as? NSNumber)?.doubleValue, json)
         XCTAssertEqual(daysUntil, 100, accuracy: 15)
         let slope = try XCTUnwrap((o["slope_bytes_per_day"] as? NSNumber)?.doubleValue)
         XCTAssertLessThan(slope, 0)
