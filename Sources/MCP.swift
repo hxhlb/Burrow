@@ -439,7 +439,45 @@ struct ToolCatalog {
         ]
     }
 
+    /// Public entry: dispatch the tool, then (for mutating tools) leave an
+    /// audit row so a human can see what an agent did (B.5).
     func call(name: String, arguments: [String: Any]) throws -> String {
+        let start = Date()
+        do {
+            let result = try dispatch(name: name, arguments: arguments)
+            if Self.auditedTools.contains(name) {
+                recordAudit(tool: name, arguments: arguments, ok: true, summary: result, since: start)
+            }
+            return result
+        } catch {
+            if Self.auditedTools.contains(name) {
+                recordAudit(tool: name, arguments: arguments, ok: false, summary: "\(error)", since: start)
+            }
+            throw error
+        }
+    }
+
+    /// The mutating tools whose use we record. Read-only tools aren't audited
+    /// — no action taken, and it would bloat the log (and the reader list).
+    static let auditedTools: Set<String> = [
+        "burrow_clean", "burrow_optimize", "burrow_uninstall", "burrow_purge", "burrow_installer",
+    ]
+
+    private func recordAudit(tool: String, arguments: [String: Any], ok: Bool, summary: String, since: Date) {
+        let argsJSON = (try? JSONSerialization.data(withJSONObject: arguments, options: [.sortedKeys]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let entry = AgentAudit.Entry(
+            tool: tool, client: "mcp",
+            dryRun: (arguments["confirm"] as? Bool) != true,
+            durationMs: Int(Date().timeIntervalSince(since) * 1000),
+            ok: ok, summary: String(summary.prefix(200)), argsJSON: argsJSON)
+        // db.insert is serialized (writeQueue) with a busy timeout, so this is
+        // safe alongside the GUI sampler's writes.
+        try? db.insert(prefix: AgentAudit.prefix, ts: Int(Date().timeIntervalSince1970),
+                       json: AgentAudit.encode(entry))
+    }
+
+    private func dispatch(name: String, arguments: [String: Any]) throws -> String {
         switch name {
         case "burrow_snapshot":
             return self.callSnapshot()
