@@ -323,6 +323,7 @@
 "%d days" = "%d 天";
 "%d weeks" = "%d 週";
 "%d months" = "%d 個月";
+"Uncommitted or unpushed git changes in this repo" = "此儲存庫有未提交或未推送的 git 變更";
 "A new startup item appeared" = "出現了新的啟動項";
 "“%@” now launches automatically. If you didn't add it, review it." = "“%@” 現在會自動啟動。如果不是你新增的，請檢查它。";
 "CPU usage is high" = "CPU 使用率過高";

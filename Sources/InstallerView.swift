@@ -410,6 +410,7 @@ struct MoItemRow: View {
     let selected: Bool
     let onToggle: () -> Void
     @State private var hover = false
+    @State private var gitWarn = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -420,6 +421,11 @@ struct MoItemRow: View {
                     .font(Brand.mono(10)).foregroundStyle(Brand.textTertiary).lineLimit(1)
             }
             Spacer(minLength: 8)
+            if gitWarn {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11)).foregroundStyle(.yellow)
+                    .help(NSLocalizedString("Uncommitted or unpushed git changes in this repo", comment: ""))
+            }
             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 17)).foregroundStyle(selected ? accent : Brand.textTertiary)
         }
@@ -428,5 +434,18 @@ struct MoItemRow: View {
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture { onToggle() }
+        .task { await checkGit() }
+    }
+
+    /// Purge-safety badge (C.11): flag rows whose folder sits in a repo with
+    /// uncommitted/unpushed work. Read-only — never changes what's selected.
+    private func checkGit() async {
+        let loc = item.location
+        guard loc.hasPrefix("/") || loc.hasPrefix("~") else { return }
+        let path = (loc as NSString).expandingTildeInPath
+        gitWarn = await Task.detached(priority: .utility) { () -> Bool in
+            guard let repo = GitSweep.repoRoot(for: path) else { return false }
+            return GitSweep.status(repo: repo)?.needsAttention ?? false
+        }.value
     }
 }
