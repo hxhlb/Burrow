@@ -29,12 +29,14 @@ enum Doctor {
         var diskFreeBytes: Int64
         var diskTotalBytes: Int64
         var recentErrorCount: Int
+        /// Days since the last Time Machine backup; nil = none found / unknown.
+        var lastBackupDaysAgo: Int? = nil
     }
 
     /// One `Check` per facet, in a stable order. Each verdict is independent;
     /// callers can sort by `level` to surface failures first.
     static func report(_ i: Input) -> [Check] {
-        [engine(i), permissions(i), memory(i), disk(i), errors(i)]
+        [engine(i), permissions(i), memory(i), disk(i), backup(i), errors(i)]
     }
 
     private static func engine(_ i: Input) -> Check {
@@ -68,6 +70,16 @@ enum Doctor {
             return Check(name: "Disk space", level: .warn, detail: "under 10% free")
         }
         return Check(name: "Disk space", level: .ok, detail: "\(Int(freePct.rounded()))% free")
+    }
+
+    private static func backup(_ i: Input) -> Check {
+        guard let days = i.lastBackupDaysAgo else {
+            return Check(name: "Backups", level: .warn, detail: "no recent Time Machine backup found")
+        }
+        if days > 14 {
+            return Check(name: "Backups", level: .warn, detail: "last backup \(days) days ago")
+        }
+        return Check(name: "Backups", level: .ok, detail: "last backup \(days) day\(days == 1 ? "" : "s") ago")
     }
 
     private static func errors(_ i: Input) -> Check {

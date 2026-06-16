@@ -71,6 +71,7 @@ struct DoctorView: View {
             fullDiskAccess: Privacy.hasFullDiskAccess(),
             moInstalled: moInstalled, pressure: pressure,
             diskFreeBytes: free, diskTotalBytes: total,
-            recentErrorCount: MetricsStore.driftCounters.decodeSkippedTotal))
+            recentErrorCount: MetricsStore.driftCounters.decodeSkippedTotal,
+            lastBackupDaysAgo: BackupStatus.lastBackupDaysAgo()))
     }
 }

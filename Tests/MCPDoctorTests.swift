@@ -58,7 +58,7 @@ final class MCPDoctorTests: XCTestCase {
         let l = try levels(catalog.call(name: "burrow_doctor", arguments: [:]))
         XCTAssertEqual(l["Memory pressure"], "fail")
         XCTAssertEqual(l["Disk space"], "fail")        // 2% < 5%
-        XCTAssertEqual(l.count, 5, "all five checks present")
+        XCTAssertEqual(l.count, 6, "all six checks present")
     }
 
     func testDoctor_healthySnapshot_pressureAndDiskOK() throws {
