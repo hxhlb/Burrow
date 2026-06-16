@@ -311,6 +311,12 @@
 "Clear %@ cache" = "清理 %@ 快取";
 "Review startup item: %@" = "審查啟動項：%@";
 "Nothing to tune up — you're clean." = "沒有需要調校的內容——很乾淨。";
+"restore" = "復原";
+"Restore" = "復原";
+"Put back what the last clean moved." = "把上次清理移走的放回原處。";
+"Restore last cleanup" = "復原上次清理";
+"Only Trash-based removals can be restored — cache deletions are permanent." = "僅可復原移到垃圾桶的項目——快取刪除是永久性的。";
+"No restorable items found." = "未找到可復原的項目。";
 "A new startup item appeared" = "出現了新的啟動項";
 "“%@” now launches automatically. If you didn't add it, review it." = "“%@” 現在會自動啟動。如果不是你新增的，請檢查它。";
 "CPU usage is high" = "CPU 使用率過高";

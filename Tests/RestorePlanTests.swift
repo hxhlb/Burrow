@@ -31,6 +31,21 @@ final class RestorePlanTests: XCTestCase {
         XCTAssertTrue(plan.first?.reason.contains("already exists") ?? false)
     }
 
+    func testParseLog_extractsOkEntriesNewestFirst() {
+        let log = """
+        1700000000\ttrash\tcache\tok\t/Users/x/A.app
+        1700000001\tremove\tlog\tok\t/Users/x/old.log
+        1700000002\ttrash\tcache\tfailed\t/Users/x/B.app
+        """
+        let items = RestorePlan.parseLog(log)
+        XCTAssertEqual(items.map(\.originalPath), ["/Users/x/old.log", "/Users/x/A.app"], "ok-only, newest first")
+        XCTAssertEqual(items.first?.action, "remove")
+    }
+
+    func testParseLog_skipsMalformedLines() {
+        XCTAssertTrue(RestorePlan.parseLog("garbage\nalso bad").isEmpty)
+    }
+
     func testMixedSession_countsOnlyRestorable() {
         let plan = RestorePlan.build([
             .init(originalPath: "/a", action: "trash"),   // restorable

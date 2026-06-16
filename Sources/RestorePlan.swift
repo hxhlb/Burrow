@@ -44,4 +44,17 @@ enum RestorePlan {
 
     /// Convenience: how many of a plan can actually be restored.
     static func restorableCount(_ plan: [Entry]) -> Int { plan.filter(\.restorable).count }
+
+    /// Parse Mole's tab-separated deletion log (`ts\taction\tcategory\tstatus\tpath`)
+    /// into restore candidates: entries that succeeded (`status == "ok"`),
+    /// newest first. The path is the remainder so an embedded tab survives.
+    static func parseLog(_ text: String) -> [Item] {
+        var out: [Item] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            let p = line.split(separator: "\t", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
+            guard p.count >= 5, p[3] == "ok" else { continue }
+            out.append(Item(originalPath: p[4], action: p[1]))
+        }
+        return out.reversed()
+    }
 }

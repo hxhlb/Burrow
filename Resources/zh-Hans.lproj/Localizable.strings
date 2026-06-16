@@ -311,6 +311,12 @@
 "Clear %@ cache" = "清理 %@ 缓存";
 "Review startup item: %@" = "审查启动项：%@";
 "Nothing to tune up — you're clean." = "没有需要调优的内容——很干净。";
+"restore" = "恢复";
+"Restore" = "恢复";
+"Put back what the last clean moved." = "把上次清理移走的放回原处。";
+"Restore last cleanup" = "恢复上次清理";
+"Only Trash-based removals can be restored — cache deletions are permanent." = "仅可恢复移到废纸篓的项目——缓存删除是永久性的。";
+"No restorable items found." = "未找到可恢复的项目。";
 "A new startup item appeared" = "出现了新的启动项";
 "“%@” now launches automatically. If you didn't add it, review it." = "“%@” 现在会自动启动。如果不是你添加的，请检查它。";
 "CPU usage is high" = "CPU 使用率过高";
