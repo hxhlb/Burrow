@@ -24,6 +24,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let producer: SnapshotProducer
     private weak var delegate: AppDelegate?
     private var metricsSub: AnyCancellable?
+    /// 1 Hz net/disk-rate updates for the metrics row (separate from the
+    /// snapshot sink so live throughput animates between snapshots).
+    private var samplesSub: AnyCancellable?
+    /// Rolling per-metric history for the menu-bar sparkline style, appended
+    /// at the snapshot cadence (net/disk sparklines read straight off the
+    /// live ring instead).
+    private var menuBarHistory: [MenuBarMetric: [Double]] = [:]
     /// A small accent dot shown over the glyph when a Burrow self-update is
     /// available (driven by AppUpdate via .burrowUpdateAvailability).
     private let updateDot = NSView()
@@ -86,27 +93,94 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// Icon vs Metrics (Settings ▸ Menu Bar): metrics renders live CPU% +
-    /// memory next to the mark, refreshed as snapshots arrive.
+    /// Icon vs Metrics (Settings ▸ Menu Bar). Metrics renders the user's
+    /// configured `Store.menuBarItems` row (issue #82); icon shows the mark.
+    /// Safe to call again to apply a settings change live.
     func applyDisplayMode() {
         guard let button = item.button else { return }
-        if Store.menuBarDisplayMode == .metrics {
-            button.imagePosition = .imageLeft
-            metricsSub = producer.live.$lastSnapshot
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] snapshot in
-                    guard let button = self?.item.button, let s = snapshot else { return }
-                    let mem = Double(s.memory.used) / 1_073_741_824
-                    button.title = String(format: " %.0f%% · %.1fG", s.cpu.usage, mem)
-                    button.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
-                    self?.refreshUpdateDot()   // width changed → reposition
-                }
-        } else {
+        guard Store.menuBarDisplayMode == .metrics else {
             metricsSub = nil
-            button.title = ""
+            samplesSub = nil
+            menuBarHistory.removeAll()
+            button.image = BurrowIcons.menuBar
             button.imagePosition = .imageOnly
+            button.title = ""
+            refreshUpdateDot()
+            return
         }
+        // Snapshot sink: CPU/RAM/GPU/disk/fan/temp/battery + sparkline history.
+        metricsSub = producer.live.$lastSnapshot
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.onSnapshot() }
+        // 1 Hz sink: live net/disk rates + their sparklines.
+        samplesSub = producer.live.$samples
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.renderMetrics() }
+        renderMetrics()
         refreshUpdateDot()
+    }
+
+    /// Snapshot tick: extend the cpu/mem/gpu sparkline rings (only the snapshot
+    /// carries those series), then redraw.
+    private func onSnapshot() {
+        guard Store.menuBarDisplayMode == .metrics, let s = producer.live.lastSnapshot else { return }
+        appendHistory(.cpu, s.cpu.usage)
+        appendHistory(.memory, s.memory.usedPercent)
+        if let g = s.gpu?.first, g.usage >= 0 { appendHistory(.gpu, g.usage) }
+        renderMetrics()
+    }
+
+    private func appendHistory(_ m: MenuBarMetric, _ v: Double) {
+        var ring = menuBarHistory[m] ?? []
+        ring.append(v)
+        if ring.count > 40 { ring.removeFirst(ring.count - 40) }
+        menuBarHistory[m] = ring
+    }
+
+    /// Assemble the current values and draw the row into the status button.
+    /// Deliberately cheap (a few strings + shapes) and reads only already-
+    /// published live values — never the running-app list or other blocking
+    /// work, so the menu bar can't add to the main-thread budget.
+    private func renderMetrics() {
+        guard let button = item.button, Store.menuBarDisplayMode == .metrics else { return }
+        if let image = MenuBarRenderer.image(items: Store.menuBarItems, values: currentValues()) {
+            button.image = image
+        } else {
+            button.image = BurrowIcons.menuBar
+        }
+        button.imagePosition = .imageOnly
+        button.title = ""
+        refreshUpdateDot()
+    }
+
+    /// Snapshot of every metric the row might draw, read on the main thread
+    /// from the live feed (which is itself main-thread-confined).
+    private func currentValues() -> MenuBarMetricValues {
+        var v = MenuBarMetricValues()
+        let live = producer.live
+        if let s = live.lastSnapshot {
+            v.primary[.cpu] = s.cpu.usage
+            v.primary[.memory] = s.memory.usedPercent
+            if let g = s.gpu?.first, g.usage >= 0 { v.primary[.gpu] = g.usage }
+            if let d = s.disks.first { v.primary[.diskUsage] = d.usedPercent }
+            if let t = s.thermal {
+                if t.fanSpeed > 0 || (t.fanCount ?? 0) > 0 { v.primary[.fan] = Double(t.fanSpeed) }
+                if let temp = t.bestTemp { v.primary[.temperature] = temp }
+            }
+            if let b = s.batteries?.first {
+                v.primary[.battery] = b.percent
+                v.batteryCharging = b.status.lowercased().contains("charg")
+            }
+        }
+        v.primary[.network] = live.rxMBs;   v.secondary[.network] = live.txMBs
+        v.primary[.diskIO]  = live.readMBs;  v.secondary[.diskIO]  = live.writeMBs
+        let recent = live.samples.suffix(30)
+        v.histories[.network] = recent.map { $0.rxMBs + $0.txMBs }
+        v.histories[.diskIO]  = recent.map { $0.readMBs + $0.writeMBs }
+        v.histories[.cpu]    = menuBarHistory[.cpu]
+        v.histories[.memory] = menuBarHistory[.memory]
+        v.histories[.gpu]    = menuBarHistory[.gpu]
+        return v
     }
 
     deinit {

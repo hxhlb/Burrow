@@ -315,10 +315,26 @@ enum Store {
         set { write(newValue.rawValue, "cache_removal_mode") }
     }
 
-    /// What the status item shows: the Burrow mark, or live text metrics.
+    /// What the status item shows: the Burrow mark, or live metrics.
     static var menuBarDisplayMode: MenuBarDisplayMode {
         get { MenuBarDisplayMode(rawValue: d.string(forKey: "menu_bar_display_mode") ?? "") ?? .icon }
         set { write(newValue.rawValue, "menu_bar_display_mode") }
+    }
+
+    /// The ordered set of metric widgets the status item renders in
+    /// `.metrics` mode (see `MenuBarItem` / `MenuBarWidgets.swift`). Persisted
+    /// as JSON so the shape can grow without new keys. Falls back to the
+    /// historical CPU + memory pair, so users who already chose "metrics" see
+    /// no change until they customize.
+    static var menuBarItems: [MenuBarItem] {
+        get {
+            guard let data = d.data(forKey: "menu_bar_items"),
+                  let items = try? JSONDecoder().decode([MenuBarItem].self, from: data),
+                  !items.isEmpty
+            else { return MenuBarItem.defaults }
+            return items
+        }
+        set { write(try? JSONEncoder().encode(newValue), "menu_bar_items") }
     }
 
     /// Whether closing the last window drops the Dock icon (the classic

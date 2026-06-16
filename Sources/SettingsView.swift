@@ -69,6 +69,7 @@ struct SettingsView: View {
     // Menu bar
     @State private var showMenuBarIcon: Bool = Store.showMenuBarIcon
     @State private var displayMode: MenuBarDisplayMode = Store.menuBarDisplayMode
+    @State private var menuBarItems: [MenuBarItem] = Store.menuBarItems
     @State private var inputLock: Bool = Store.cleanScreenInputLock
     @State private var axTrusted = CleanScreen.inputLockPermitted()
 
@@ -384,7 +385,8 @@ struct SettingsView: View {
                         AppDelegate.shared?.applyMenuBarVisibility(Store.showMenuBarIcon)
                     }
                 }
-                footnote("Metrics shows live CPU and memory next to the mark, refreshed with the sampler.")
+                footnote("Choose which metrics appear in the menu bar and how each is shown — refreshed with the sampler.")
+                if displayMode == .metrics { menuBarMetricsEditor }
                 toggleRow("Show camera & mic in-use indicator", isOn: $cameraMicIndicator) {
                     Store.cameraMicIndicatorEnabled = $0
                 }
@@ -752,6 +754,100 @@ struct SettingsView: View {
             .fixedSize()
             .onChange(of: selection.wrappedValue) { _, n in onChange(n) }
         }
+    }
+
+    // MARK: - Menu bar metrics editor (issue #82)
+
+    /// Reorderable list of the metric widgets shown in `.metrics` mode, plus
+    /// an "Add metric" menu. Changes persist + re-render the status item live.
+    @ViewBuilder
+    private var menuBarMetricsEditor: some View {
+        VStack(spacing: 4) {
+            if menuBarItems.isEmpty {
+                Text(NSLocalizedString("No metrics yet — add one below.", comment: ""))
+                    .font(Brand.sans(11)).foregroundStyle(Brand.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            ForEach(Array(menuBarItems.enumerated()), id: \.element.id) { idx, item in
+                menuBarMetricRow(index: idx, item: item)
+            }
+            HStack {
+                Menu {
+                    ForEach(MenuBarMetric.allCases) { m in
+                        Button { addMenuBarMetric(m) } label: { Label(m.title, systemImage: m.glyph) }
+                    }
+                } label: {
+                    Label(NSLocalizedString("Add metric", comment: ""), systemImage: "plus.circle")
+                        .font(Brand.sans(12)).foregroundStyle(Brand.green)
+                }
+                .menuStyle(.borderlessButton).fixedSize()
+                Spacer()
+            }
+            .padding(.top, 2)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func menuBarMetricRow(index idx: Int, item: MenuBarItem) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: item.metric.glyph).font(.system(size: 11))
+                .foregroundStyle(Brand.textSecondary).frame(width: 16)
+            Text(item.metric.title).font(Brand.sans(12)).foregroundStyle(Brand.textPrimary)
+            Spacer(minLength: 6)
+            Menu {
+                ForEach(item.metric.styles) { st in
+                    Button(st.title) { updateMenuBarItem(idx) { $0.style = st } }
+                }
+            } label: {
+                Text(item.resolvedStyle.title).font(Brand.mono(10)).foregroundStyle(Brand.textSecondary)
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            Menu {
+                ForEach(MenuBarColorMode.allCases) { c in
+                    Button(c.title) { updateMenuBarItem(idx) { $0.color = c } }
+                }
+            } label: {
+                Image(systemName: "circle.lefthalf.filled").font(.system(size: 11)).foregroundStyle(Brand.textTertiary)
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            .help(NSLocalizedString("Color", comment: ""))
+            Button { moveMenuBarItem(idx, by: -1) } label: {
+                Image(systemName: "chevron.up").font(.system(size: 9, weight: .bold)).foregroundStyle(Brand.textTertiary)
+            }
+            .buttonStyle(.plain).disabled(idx == 0).accessibilityLabel(NSLocalizedString("Move up", comment: ""))
+            Button { moveMenuBarItem(idx, by: 1) } label: {
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(Brand.textTertiary)
+            }
+            .buttonStyle(.plain).disabled(idx == menuBarItems.count - 1).accessibilityLabel(NSLocalizedString("Move down", comment: ""))
+            Button { menuBarItems.remove(at: idx); commitMenuBarItems() } label: {
+                Image(systemName: "minus.circle.fill").font(.system(size: 12)).foregroundStyle(Brand.textTertiary)
+            }
+            .buttonStyle(.plain).accessibilityLabel(NSLocalizedString("Remove", comment: ""))
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func updateMenuBarItem(_ idx: Int, _ mutate: (inout MenuBarItem) -> Void) {
+        guard menuBarItems.indices.contains(idx) else { return }
+        mutate(&menuBarItems[idx]); commitMenuBarItems()
+    }
+
+    private func addMenuBarMetric(_ m: MenuBarMetric) {
+        menuBarItems.append(MenuBarItem(metric: m, style: m.styles.first ?? .value))
+        commitMenuBarItems()
+    }
+
+    private func moveMenuBarItem(_ idx: Int, by delta: Int) {
+        let j = idx + delta
+        guard menuBarItems.indices.contains(j) else { return }
+        menuBarItems.swapAt(idx, j); commitMenuBarItems()
+    }
+
+    /// Persist + re-render the status item (applyMenuBarVisibility re-runs the
+    /// display mode when the icon is shown).
+    private func commitMenuBarItems() {
+        Store.menuBarItems = menuBarItems
+        AppDelegate.shared?.applyMenuBarVisibility(Store.showMenuBarIcon)
     }
 
     // MARK: - Status labels
