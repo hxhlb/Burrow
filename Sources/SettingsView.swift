@@ -53,6 +53,9 @@ struct SettingsView: View {
     @State private var skipIntro: Bool = Store.skipIntro
     @State private var notifyOnCompletion: Bool = Store.notifyOnCompletion
     @State private var smartReminders: Bool = Store.smartRemindersEnabled
+    @State private var watchStartupItems: Bool = Store.watchStartupItems
+    @State private var thresholdAlerts: Bool = Store.thresholdAlertsEnabled
+    @State private var showRestore = false
     @State private var autoCheckUpdates: Bool = Store.autoCheckForUpdates
     @State private var cameraMicIndicator: Bool = Store.cameraMicIndicatorEnabled
 
@@ -131,6 +134,13 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onExitCommand { onClose?() }
+        .sheet(isPresented: $showRestore) {
+            VStack(spacing: 0) {
+                HStack { Spacer(); Button(NSLocalizedString("Done", comment: "")) { showRestore = false }.padding(12) }
+                RestoreView()
+            }
+            .frame(width: 460, height: 440)
+        }
         .onAppear {
             refreshStatusLabels(); loadMoleVersion(); loadTouchIDStatus()
             whitelistPatterns = MoleWhitelist.live.patterns()
@@ -243,6 +253,10 @@ struct SettingsView: View {
                 footnote("Clean, Optimize and Uninstall post a notice with the result (e.g. space freed) when they finish while Burrow is in the background. macOS asks for notification permission the first time one fires.")
                 toggleRow("Smart reminders", isOn: $smartReminders) { Store.smartRemindersEnabled = $0 }
                 footnote("Occasional, throttled nudges: it's been a couple of weeks since your last clean, free disk space dropped under 10%, or the Trash is holding more than 5 GB. Each fires at most once a week, never while you're in the app. Off by default.")
+                toggleRow("New startup-item alerts", isOn: $watchStartupItems) { Store.watchStartupItems = $0 }
+                footnote("Notifies you when a new login item or LaunchAgent appears — a lightweight persistence check. On by default.")
+                toggleRow("CPU / memory threshold alerts", isOn: $thresholdAlerts) { Store.thresholdAlertsEnabled = $0 }
+                footnote("Notifies once per episode when CPU stays pegged or memory pressure runs high. Off by default.")
             }
 
             section("About", "info.circle") {
@@ -332,8 +346,9 @@ struct SettingsView: View {
             section("Storage", "internaldrive") {
                 infoRow("Currently using", dbSizeText)
                 infoRow("Last maintenance", lastMaintenanceText)
-                HStack {
+                HStack(spacing: 8) {
                     Spacer()
+                    PillButton(title: "Restore last cleanup…", filled: false) { showRestore = true }
                     PillButton(title: "Run maintenance now", filled: false) {
                         onRunMaintenance?(); refreshStatusLabels()
                     }

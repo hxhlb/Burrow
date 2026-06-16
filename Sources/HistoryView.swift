@@ -439,7 +439,7 @@ struct HistoryView: View {
                             if let anchor = proxy.plotFrame {
                                 let plot = geo[anchor]
                                 Rectangle().fill(Color.clear).contentShape(Rectangle())
-                                    .gesture(DragGesture(minimumDistance: 4)
+                                    .highPriorityGesture(DragGesture(minimumDistance: 4)
                                         .onChanged { v in
                                             if spikeDragStart == nil { spikeDragStart = v.startLocation.x - plot.minX }
                                             spikeDragCurrent = v.location.x - plot.minX

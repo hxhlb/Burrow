@@ -76,8 +76,13 @@ struct UpdatesView: View {
                     .font(Brand.mono(10)).foregroundStyle(Brand.textTertiary)
             }
             Spacer()
-            if model.checking {
-                ProgressView().controlSize(.small)
+            if model.checking || model.brewSurfacing {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(model.checking ? NSLocalizedString("Checking…", comment: "")
+                                        : NSLocalizedString("Checking Homebrew…", comment: ""))
+                        .font(Brand.mono(10)).foregroundStyle(Brand.textTertiary)
+                }
             }
             PillButton(title: model.checked ? "Check again" : "Check for updates", filled: !model.checked) {
                 model.checkNow()
@@ -254,6 +259,8 @@ final class UpdatesModel: ObservableObject {
     @Published var upgrading: Set<String> = []
     /// Live brew step during an upgrade (H: brew-upgrade streaming).
     @Published var brewPhrase: String = ""
+    /// True while the on-open `brew outdated` surface is running (shows a spinner).
+    @Published var brewSurfacing = false
     private var preparedCount = -1
     private var brewSurfaced = false
 
@@ -292,9 +299,13 @@ final class UpdatesModel: ObservableObject {
     func autoSurface() {
         guard !brewSurfaced, !checking else { return }
         brewSurfaced = true
+        brewSurfacing = true
         Task {
             let brews = await Self.brewOutdated()
-            await MainActor.run { if self.brewItems.isEmpty { self.brewItems = brews } }
+            await MainActor.run {
+                if self.brewItems.isEmpty { self.brewItems = brews }
+                self.brewSurfacing = false
+            }
         }
     }
 
