@@ -64,4 +64,22 @@ final class ConnectivityTests: XCTestCase {
         XCTAssertFalse(Connectivity.proxyActive(["HTTPEnable": 0]))
         XCTAssertFalse(Connectivity.proxyActive([:]))
     }
+
+    func testMDMEnrolled_parsesProfilesStatus() {
+        XCTAssertEqual(Connectivity.mdmEnrolled(fromProfilesStatus: "Enrolled via DEP: No\nMDM enrollment: No\n"), false)
+        XCTAssertEqual(Connectivity.mdmEnrolled(fromProfilesStatus: "MDM enrollment: Yes (User Approved)"), true)
+        XCTAssertNil(Connectivity.mdmEnrolled(fromProfilesStatus: "Enrolled via DEP: No"))
+    }
+
+    func testDefaultRoute_gatewayAndInterface() {
+        let wifi = "   route to: default\ndestination: default\n    gateway: 192.168.1.1\n  interface: en0\n"
+        let r = Connectivity.defaultRoute(fromRouteGet: wifi)
+        XCTAssertEqual(r.gateway, "192.168.1.1")
+        XCTAssertEqual(r.interface, "en0")
+        // A point-to-point VPN tunnel has an interface but no gateway.
+        let tun = "destination: default\n  interface: utun7\n"
+        let r2 = Connectivity.defaultRoute(fromRouteGet: tun)
+        XCTAssertNil(r2.gateway)
+        XCTAssertEqual(r2.interface, "utun7")
+    }
 }

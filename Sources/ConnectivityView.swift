@@ -19,17 +19,19 @@ struct ConnectivityView: View {
     var isActive: Bool = true
 
     @State private var checks: [Connectivity.Check] = []
+    @State private var iface: String?
     @State private var loading = false
     @State private var loaded = false
+    @State private var actionBusy: Connectivity.Fix?
+    @State private var actionResult: String?
 
     private var accent: Color { Tool.status.accent }
-    private var portalPresent: Bool { checks.contains { $0.id == "portal" } }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 header
-                openLoginCard
+                actionsCard
                 ForEach(checks) { checkRow($0) }
                 if loaded, checks.isEmpty {
                     Text(NSLocalizedString("Couldn't run the checks.", comment: ""))
@@ -69,21 +71,49 @@ struct ConnectivityView: View {
         }
     }
 
-    private var openLoginCard: some View {
+    private var actionsCard: some View {
         GlassCard {
-            HStack(spacing: 12) {
-                Image(systemName: portalPresent ? "globe.badge.chevron.backward" : "globe")
-                    .font(.system(size: 18)).foregroundStyle(accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(NSLocalizedString("Open the login page", comment: ""))
-                        .font(Brand.sans(14, .semibold)).foregroundStyle(Brand.textPrimary)
-                    Text(NSLocalizedString("Force the captive portal to open in your browser.", comment: ""))
-                        .font(Brand.sans(12)).foregroundStyle(Brand.textSecondary)
+            VStack(alignment: .leading, spacing: 12) {
+                Eyebrow(text: "Fixes", glyph: "wrench.and.screwdriver", color: accent)
+                Text(NSLocalizedString("Force the login page open, or clear the two things that most often wedge a hotspot connection. Burrow runs these for you (one password) — it doesn't just point at Settings.", comment: ""))
+                    .font(Brand.sans(12)).foregroundStyle(Brand.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    PillButton(title: "Open Login Page") { NSWorkspace.shared.open(Connectivity.probeURL) }
+                    fixButton("Flush DNS", .flushDNS)
+                    fixButton("Renew DHCP", .renewDHCP)
+                    Spacer()
                 }
-                Spacer()
-                PillButton(title: "Open Login Page") {
-                    NSWorkspace.shared.open(Connectivity.probeURL)
+                if let msg = actionResult {
+                    Text(msg).font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
                 }
+            }
+        }
+    }
+
+    @ViewBuilder private func fixButton(_ title: String, _ fix: Connectivity.Fix) -> some View {
+        if actionBusy == fix {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(title).font(Brand.sans(12)).foregroundStyle(Brand.textTertiary)
+            }
+        } else {
+            PillButton(title: title, filled: false) { runFix(fix) }
+                .disabled(actionBusy != nil)
+                .opacity(actionBusy != nil ? 0.4 : 1)
+        }
+    }
+
+    private func runFix(_ fix: Connectivity.Fix) {
+        actionBusy = fix
+        actionResult = nil
+        let iface = self.iface
+        Task.detached(priority: .userInitiated) {
+            let r = Connectivity.run(fix, interface: iface)
+            await MainActor.run {
+                actionBusy = nil
+                actionResult = r.message
+                if r.ok { reload() }   // re-check after a successful fix
             }
         }
     }
@@ -145,7 +175,8 @@ struct ConnectivityView: View {
         loading = true
         Task {
             let result = await Connectivity.probeAll()
-            checks = result
+            checks = result.checks
+            iface = result.interface
             loading = false
             loaded = true
         }

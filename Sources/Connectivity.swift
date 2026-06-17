@@ -85,16 +85,40 @@ enum Connectivity {
         return keys.contains { (settings[$0] as? Int) == 1 }
     }
 
+    /// MDM enrollment from `profiles status -type enrollment` ("MDM enrollment:
+    /// Yes/No"); nil when the line is absent.
+    static func mdmEnrolled(fromProfilesStatus text: String) -> Bool? {
+        for line in text.split(separator: "\n") where line.contains("MDM enrollment:") {
+            return line.lowercased().contains("yes")
+        }
+        return nil
+    }
+
+    /// Default-route gateway + interface from `route -n get default`. Either may
+    /// be absent (a point-to-point VPN tunnel has an interface but no gateway).
+    static func defaultRoute(fromRouteGet text: String) -> (gateway: String?, interface: String?) {
+        var gw: String?, iface: String?
+        for raw in text.split(separator: "\n") {
+            let t = raw.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("gateway:") { gw = String(t.dropFirst("gateway:".count)).trimmingCharacters(in: .whitespaces) }
+            else if t.hasPrefix("interface:") { iface = String(t.dropFirst("interface:".count)).trimmingCharacters(in: .whitespaces) }
+        }
+        return (gw, iface)
+    }
+
     // MARK: - Impure probes (best-effort, off the main thread)
 
     /// Run the full device-side check + captive probe and return the ranked
     /// checklist for the Get-Online pane.
-    static func probeAll() async -> [Check] {
+    static func probeAll() async -> (checks: [Check], interface: String?) {
         async let captive = probeCaptive()
         let dns = resolvers(fromScutilDNS: shell("/usr/sbin/scutil", ["--dns"]))
         let vpn = vpnConnected(fromScutilNC: shell("/usr/sbin/scutil", ["--nc", "list"]))
         let proxy = proxyActive((CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any]) ?? [:])
-        let ip = shell("/usr/sbin/ipconfig", ["getifaddr", "en0"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let route = defaultRoute(fromRouteGet: shell("/sbin/route", ["-n", "get", "default"]))
+        let iface = route.interface ?? "en0"
+        let ip = shell("/usr/sbin/ipconfig", ["getifaddr", iface]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let mdm = mdmEnrolled(fromProfilesStatus: shell("/usr/bin/profiles", ["status", "-type", "enrollment"]))
         let probe = await captive
         let (online, portal) = captiveVerdict(body: probe.body, statusCode: probe.status)
 
@@ -142,12 +166,22 @@ enum Connectivity {
                                 : NSLocalizedString("DNS looks default for this network.", comment: ""),
                             settingsHint: publicDNS ? NSLocalizedString("Wi-Fi ▸ Details ▸ DNS", comment: "") : nil))
 
+        if mdm == true {
+            checks.append(Check(id: "mdm", title: NSLocalizedString("Managed device (MDM)", comment: ""),
+                                status: .warn,
+                                detail: NSLocalizedString("This Mac is managed. A configuration profile may pin DNS/proxy or block changes — some fixes below can be locked.", comment: ""),
+                                settingsHint: NSLocalizedString("Settings ▸ General ▸ Device Management", comment: "")))
+        }
+        if let gw = route.gateway, !gw.isEmpty {
+            checks.append(Check(id: "gateway", title: NSLocalizedString("Router", comment: ""),
+                                status: .ok, detail: gw, settingsHint: nil))
+        }
         if !ip.isEmpty {
             checks.append(Check(id: "ip", title: NSLocalizedString("IP address", comment: ""),
-                                status: .ok, detail: ip, settingsHint: nil))
+                                status: .ok, detail: "\(ip)  ·  \(iface)", settingsHint: nil))
         }
 
-        return checks
+        return (checks, route.interface)
     }
 
     /// GET the captive probe with a short timeout; returns the body + status.
@@ -167,5 +201,40 @@ enum Connectivity {
     /// Capture a short command's stdout via the shared engine seam.
     private static func shell(_ path: String, _ args: [String]) -> String {
         (try? MoEngine.shared.capture(MoCommand(target: .executable(path), args: args, timeout: 8)))?.stdout ?? ""
+    }
+
+    // MARK: - One-click fixes
+    //
+    // Hotspot Guide is App-Sandboxed, so every fix it offers is just a deep-link
+    // the user has to perform. Burrow isn't sandboxed — these actually run, with
+    // one admin prompt through the shared PrivilegeBroker. (Private Relay / VPN
+    // have no programmatic toggle even unsandboxed, so those stay deep-links.)
+
+    enum Fix: Equatable { case flushDNS, renewDHCP }
+
+    /// Run a fix with a single admin prompt. Blocks on the auth dialog — call
+    /// off the main thread. Returns a user-facing result.
+    static func run(_ fix: Fix, interface: String?) -> (ok: Bool, message: String) {
+        let broker = SystemPrivilegeBroker()
+        switch fix {
+        case .flushDNS:
+            let r = broker.openElevated(executable: "/bin/sh",
+                                        args: ["-c", "dscacheutil -flushcache; killall -HUP mDNSResponder"])
+            return classify(r, ok: NSLocalizedString("DNS cache flushed.", comment: ""),
+                            fail: NSLocalizedString("Couldn't flush the DNS cache.", comment: ""))
+        case .renewDHCP:
+            let iface = interface ?? "en0"
+            let r = broker.openElevated(executable: "/usr/sbin/ipconfig", args: ["set", iface, "DHCP"])
+            return classify(r, ok: String(format: NSLocalizedString("Renewed the DHCP lease on %@.", comment: ""), iface),
+                            fail: NSLocalizedString("Couldn't renew the DHCP lease.", comment: ""))
+        }
+    }
+
+    private static func classify(_ outcome: ElevatedOutcome, ok: String, fail: String) -> (ok: Bool, message: String) {
+        switch outcome {
+        case .exited(0):     return (true, ok)
+        case .authCancelled: return (false, NSLocalizedString("Cancelled.", comment: ""))
+        default:             return (false, fail)
+        }
     }
 }
