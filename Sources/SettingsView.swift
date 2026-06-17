@@ -58,6 +58,8 @@ struct SettingsView: View {
     @State private var cpuAlertThreshold: Int = Store.cpuAlertThreshold
     @State private var memAlertThreshold: Int = Store.memAlertThreshold
     @State private var showRestore = false
+    @State private var brewBusy = false
+    @State private var brewSnapshotStatus = ""
     @State private var autoCheckUpdates: Bool = Store.autoCheckForUpdates
     @State private var cameraMicIndicator: Bool = Store.cameraMicIndicatorEnabled
 
@@ -370,6 +372,23 @@ struct SettingsView: View {
                 footnote("History lives at ~/Library/Application Support/Burrow/burrow.db. Rows past the retention window are pruned hourly.")
             }
 
+            if BrewClient.isInstalled {
+                section("Homebrew", "mug") {
+                    Text("Save your Homebrew setup to a Brewfile, and restore it on a new Mac in one step (brew bundle).")
+                        .font(Brand.sans(11)).foregroundStyle(Brand.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        if brewBusy { ProgressView().controlSize(.small) }
+                        Text(brewSnapshotStatus).font(Brand.mono(11)).foregroundStyle(Brand.textSecondary)
+                        Spacer()
+                        PillButton(title: "Export Brewfile…", filled: false) { exportBrewfile() }
+                            .disabled(brewBusy).opacity(brewBusy ? 0.4 : 1)
+                        PillButton(title: "Restore…", filled: false) { restoreBrewfile() }
+                            .disabled(brewBusy).opacity(brewBusy ? 0.4 : 1)
+                    }
+                }
+            }
+
             section("History retention", "calendar") {
                 pickerRow("Keep history for", selection: $retentionDays,
                           options: [(1, "1 day"), (7, "7 days"), (14, "14 days"),
@@ -640,6 +659,50 @@ struct SettingsView: View {
     }
 
     // MARK: - Section + row helpers
+
+    // MARK: - Homebrew snapshots (brew bundle)
+
+    private func exportBrewfile() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Brewfile"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        brewBusy = true
+        brewSnapshotStatus = NSLocalizedString("Exporting…", comment: "")
+        Task {
+            let r = await Task.detached(priority: .userInitiated) {
+                BrewClient.run(["bundle", "dump", "--file=\(url.path)", "--force"])
+            }.value
+            brewBusy = false
+            if r.code == 0 {
+                brewSnapshotStatus = NSLocalizedString("Exported.", comment: "")
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } else {
+                brewSnapshotStatus = NSLocalizedString("Export failed — check Homebrew.", comment: "")
+            }
+        }
+    }
+
+    private func restoreBrewfile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        brewBusy = true
+        brewSnapshotStatus = NSLocalizedString("Restoring — installing from your Brewfile can take a while…", comment: "")
+        Task {
+            // brew bundle installs each entry; user-scope, no elevation. Generous
+            // timeout — a full restore on a new Mac is many packages.
+            let r = await Task.detached(priority: .userInitiated) {
+                BrewClient.run(["bundle", "--file=\(url.path)"], timeout: 1800)
+            }.value
+            brewBusy = false
+            brewSnapshotStatus = r.code == 0
+                ? NSLocalizedString("Restore complete.", comment: "")
+                : NSLocalizedString("Restore finished with errors — check Homebrew.", comment: "")
+        }
+    }
 
     private func section<C: View>(_ title: String, _ glyph: String, @ViewBuilder content: @escaping () -> C) -> some View {
         GlassCard {
