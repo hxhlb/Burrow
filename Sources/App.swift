@@ -39,6 +39,14 @@ enum BurrowMain {
         }
 
         let app = NSApplication.shared
+        // Register the bundled brand typefaces (Geist / Geist Mono / Cal Sans)
+        // before any window builds so Font.custom can reach them.
+        Fonts.register()
+        // Screenshot/QA aid: force a window appearance when BURROW_APPEARANCE
+        // is light|dark; unset → follows the system theme (the normal path).
+        if let mode = Foundation.ProcessInfo.processInfo.environment["BURROW_APPEARANCE"] {
+            app.appearance = NSAppearance(named: mode == "light" ? .aqua : .darkAqua)
+        }
         let delegate = AppDelegate()
         BurrowMain.delegate = delegate
         app.delegate = delegate

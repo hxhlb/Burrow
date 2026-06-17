@@ -70,16 +70,10 @@ struct RootView: View {
             // longer re-tints the whole window in that tool's colour.
             Brand.windowVeil.ignoresSafeArea()
 
-            HStack(spacing: 0) {
-                // Floating left rail replaces the top tab bar — the structural
-                // break from a horizontal pill strip. Padded clear of the
-                // traffic lights and detached from the window edges so it reads
-                // as a floating panel, not a flush native sidebar.
-                FloatingRail(selected: $pane)
-                    .padding(.leading, 14)
-                    .padding(.top, 40)
-                    .padding(.bottom, 14)
-
+            ZStack(alignment: .topLeading) {
+                // Content sits under the floating rail, inset on the left to
+                // clear it. The rail is drawn last so its hover labels fly out
+                // above the pane instead of behind it.
                 VStack(spacing: 0) {
                     if let release = appUpdate.available {
                         UpdateBanner(release: release,
@@ -91,11 +85,19 @@ struct RootView: View {
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .padding(.leading, 88)
                 .padding(.top, 16)
+
+                // Floating left rail — a detached, rounded rail of icon buttons
+                // in place of a top tab bar. Padded clear of the traffic lights
+                // and drawn over the content.
+                FloatingRail(selected: $pane)
+                    .padding(.leading, 14)
+                    .padding(.top, 40)
+                    .padding(.bottom, 14)
             }
         }
         .frame(minWidth: 940, minHeight: 640)
-        .environment(\.colorScheme, .dark)
         .animation(.easeInOut(duration: 0.22), value: pane)
         // Sample fast only while a live metrics pane is on screen.
         .onAppear { producer.setForeground(Self.isMetricsPane(pane)) }

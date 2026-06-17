@@ -61,16 +61,16 @@ struct HomeView: View {
                 Button { withAnimation(.easeOut(duration: 0.14)) { section = s } } label: {
                     Text(NSLocalizedString(s.rawValue, comment: ""))
                         .font(Brand.mono(12, on ? .semibold : .regular))
-                        .foregroundStyle(on ? Color.black : Brand.textSecondary)
+                        .foregroundStyle(on ? Brand.base : Brand.textSecondary)
                         .padding(.horizontal, 12).padding(.vertical, 5)
-                        .background { if on { Capsule().fill(.white) } }
+                        .background { if on { Capsule().fill(Brand.textPrimary) } }
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(3)
-        .background(Capsule().fill(Color.black.opacity(0.22)))
+        .background(Capsule().fill(Brand.chipFill))
         .overlay(Capsule().strokeBorder(Brand.hairline, lineWidth: 1))
     }
 

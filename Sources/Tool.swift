@@ -32,7 +32,7 @@ enum Tool: String, CaseIterable, Identifiable {
         case .clean:     return NSLocalizedString("Clean", comment: "")
         case .purge:     return NSLocalizedString("Purge", comment: "")
         case .installer: return NSLocalizedString("Installers", comment: "")
-        case .apps:      return NSLocalizedString("Software", comment: "")
+        case .apps:      return NSLocalizedString("Apps", comment: "")
         case .optimize:  return NSLocalizedString("Optimize", comment: "")
         case .analyze:   return NSLocalizedString("Analyze", comment: "")
         case .status:    return NSLocalizedString("Status", comment: "")
