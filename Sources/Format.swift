@@ -21,6 +21,21 @@ enum Fmt {
         let s = (i == 0) ? "\(Int(v))" : String(format: v < 10 ? "%.2f" : "%.1f", v)
         return "\(s) \(units[i])"
     }
+    /// Inverse of `bytes`: parse a humanized size string ("1.5GB", "250MB",
+    /// "--", "junk") into bytes, using the same 1024-based multipliers. A
+    /// unit-suffixed value scales by its unit; a bare number is read as raw
+    /// bytes; anything unparseable (including "--" / "") yields 0. The single
+    /// home of the size parser shared by `MoleClient` and `CleanList` — pinned
+    /// by MoleClientTests + CleanListTests.
+    static func parseSize(_ s: String) -> Int64 {
+        let t = s.trimmingCharacters(in: .whitespaces).uppercased()
+        let units: [(String, Double)] = [("TB", 1_099_511_627_776), ("GB", 1_073_741_824),
+                                         ("MB", 1_048_576), ("KB", 1024), ("B", 1)]
+        for (u, mult) in units where t.hasSuffix(u) {
+            return Int64((Double(t.dropLast(u.count).trimmingCharacters(in: .whitespaces)) ?? 0) * mult)
+        }
+        return Int64(Double(t) ?? 0)
+    }
     /// Bytes → binary gigabytes. The only home of the 1_073_741_824 constant.
     static func gib(_ bytes: Double) -> Double { bytes / 1_073_741_824 }
     static func gib(_ bytes: UInt64) -> Double { Double(bytes) / 1_073_741_824 }
