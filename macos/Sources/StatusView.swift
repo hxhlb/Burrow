@@ -458,21 +458,6 @@ struct LowSpaceBar: View {
     }
 }
 
-struct ProgressBar: View {
-    let fraction: Double
-    let color: Color
-    var body: some View {
-        GeometryReader { g in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Brand.trackFill)
-                Capsule().fill(color)
-                    .frame(width: g.size.width * CGFloat(max(0, min(fraction, 1))))
-            }
-        }
-        .frame(height: 6)
-    }
-}
-
 // MARK: - Bluetooth
 
 /// Connected Bluetooth devices with their battery — surfaced from mo's
@@ -527,12 +512,22 @@ enum ProcSort { case name, cpu, mem, pid, pwr }
 /// sortable and pinnable, scrolling inside a bounded-height card.
 struct ProcessCard: View {
     @ObservedObject var model: StatusModel
+    /// Cap the rows handed to `ForEach` by default. The table only shows
+    /// ~6½ rows at a time, but `ForEach` still builds + diffs an identity for
+    /// every element on each 2 s feed tick — over the full process set
+    /// (hundreds) that drove a SwiftUI layout/diff hang on the main thread
+    /// (Sentry BURROW-1). Showing the top `rowCap` by the current sort keeps
+    /// that bounded; "Show all" opts back into the full list.
+    private static let rowCap = 100
+    @State private var showAll = false
 
     var body: some View {
-        let rows = model.sortedProcesses()
+        let all = model.sortedProcesses()
+        let rows = showAll ? all : Array(all.prefix(Self.rowCap))
+        let hidden = all.count - rows.count
         return GlassCard(padding: 0) {
             VStack(spacing: 0) {
-                header(count: rows.count)
+                header(count: all.count)
                 Rectangle().fill(Brand.hairline).frame(height: 1)
                 // The table scrolls on its own, under a sticky header,
                 // independent of the page scroll (design 3.2). Kept compact
@@ -548,12 +543,27 @@ struct ProcessCard: View {
                                 model.togglePin(p.pid)
                             }
                         }
+                        if hidden > 0 { showAllRow(hidden: hidden) }
                     }
                 }
                 .scrollIndicators(.automatic)
                 .frame(height: 195)
             }
         }
+    }
+
+    /// Footer row that reveals the remaining processes (hidden by default to
+    /// keep the `ForEach` identity set small — see `rowCap`).
+    private func showAllRow(hidden: Int) -> some View {
+        Button { showAll = true } label: {
+            Text(String(format: NSLocalizedString("Show all (%d more)", comment: ""), hidden))
+                .font(Brand.mono(10, .bold)).tracking(0.6)
+                .foregroundStyle(Brand.textTertiary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 30)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(NSLocalizedString("Show all processes", comment: ""))
     }
 
     private func header(count: Int) -> some View {
@@ -619,7 +629,11 @@ struct ProcRow: View {
             rowMenu
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        // Fixed row height: lets LazyVStack skip per-child measurement and
+        // keeps the ScrollView size cache stable across feed ticks, instead of
+        // re-running sizeThatFits over the whole stack (Sentry BURROW-1). The
+        // 18 pt content centers in 30 pt — same visual as the old 2×6 padding.
+        .frame(height: 30)
         .background(hover ? Brand.cardFillHover : Color.clear)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
@@ -715,7 +729,7 @@ struct ProcRow: View {
 struct AppIconView: View {
     let proc: ProcessInfo
     var body: some View {
-        if let img = AppIcon.image(for: proc) {
+        if let img = AppIcon.cachedImage(for: proc) {
             Image(nsImage: img).resizable().interpolation(.high)
                 .frame(width: 18, height: 18)
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
@@ -729,30 +743,88 @@ struct AppIconView: View {
 
 /// Best-effort process → app icon. Only GUI apps (NSWorkspace running
 /// apps) resolve; daemons fall back to a glyph. Cached by name.
+///
+/// All running-app lookups happen OFF the main thread. The previous
+/// `image(for:)` walked `NSWorkspace.runningApplications` on the *main thread*
+/// on every cache miss, once per *row* — hundreds of O(running-apps) walks per
+/// 2 s refresh, a genuine source of main-thread hangs (Sentry BURROW-R /
+/// BURROW-T, and a contributor to the render-path stalls). Now the Status
+/// table pre-warms the cache from its existing off-main process pass via
+/// `resolve(for:)`, and the menu-bar popup reads the cache + fills misses
+/// asynchronously. The main thread never walks the app list.
 enum AppIcon {
+    private static let lock = NSLock()
     private static var cache: [String: NSImage] = [:]
     /// Names that resolved to nothing. Daemons (most of the process table)
-    /// never match a running GUI app — without remembering that, every
-    /// 2 s refresh re-walks all running applications per daemon row.
+    /// never match a running GUI app — remembering that avoids re-walking the
+    /// app list for them on every pass.
     private static var misses: Set<String> = []
+    /// Names with an in-flight async resolve, so repeated misses for the same
+    /// name don't pile up duplicate background walks.
+    private static var inFlight: Set<String> = []
+    private static let resolveQueue = DispatchQueue(label: "dev.caezium.burrow.appicon", qos: .utility)
 
+    /// Pure cache read — MAIN-SAFE, never walks the app list. Returns nil for
+    /// an unresolved name (caller shows the glyph). Used by the Status table,
+    /// whose off-main process pass pre-warms the cache via `resolve(for:)`.
+    static func cachedImage(for proc: ProcessInfo) -> NSImage? {
+        lock.lock(); defer { lock.unlock() }
+        return cache[proc.name]
+    }
+
+    /// Cache read with an off-main fill on miss — MAIN-SAFE. Returns the cached
+    /// icon immediately, or nil while an async resolve runs (the view picks the
+    /// icon up on a later redraw). For call sites without an off-main batch
+    /// pass — the menu-bar popup's handful of rows.
     static func image(for proc: ProcessInfo) -> NSImage? {
-        if let c = cache[proc.name] { return c }
-        if misses.contains(proc.name) { return nil }
-        for app in NSWorkspace.shared.runningApplications {
-            let exe = app.executableURL?.lastPathComponent
-            if app.localizedName == proc.name || exe == proc.name || exe == proc.command {
-                if let icon = app.icon {
-                    cache[proc.name] = icon
-                    return icon
-                }
+        lock.lock()
+        if let c = cache[proc.name] { lock.unlock(); return c }
+        let pending = misses.contains(proc.name) || inFlight.contains(proc.name)
+        if !pending { inFlight.insert(proc.name) }
+        lock.unlock()
+        if !pending {
+            resolveQueue.async {
+                resolve(for: [proc])
+                lock.lock(); inFlight.remove(proc.name); lock.unlock()
             }
         }
-        // Bounded: a newly-launched app with a previously-missed name just
-        // shows the glyph until the occasional reset re-resolves it.
-        if misses.count > 512 { misses.removeAll() }
-        misses.insert(proc.name)
         return nil
+    }
+
+    /// Resolve icons for a batch of processes OFF the main thread, filling the
+    /// shared cache. Walks `NSWorkspace.runningApplications` at most ONCE per
+    /// call (only when there are unresolved names) and indexes it, so the cost
+    /// is O(apps + procs) per pass rather than O(apps × procs) per row on main.
+    /// MUST be called off the main thread.
+    static func resolve(for processes: [ProcessInfo]) {
+        lock.lock()
+        var todo: [ProcessInfo] = []
+        for p in processes where cache[p.name] == nil && !misses.contains(p.name) {
+            todo.append(p)
+        }
+        lock.unlock()
+        guard !todo.isEmpty else { return }
+
+        // One running-app snapshot, indexed by localized name + executable.
+        var index: [String: NSImage] = [:]
+        for app in NSWorkspace.shared.runningApplications {
+            guard let icon = app.icon else { continue }
+            if let n = app.localizedName { index[n] = icon }
+            if let exe = app.executableURL?.lastPathComponent { index[exe] = icon }
+        }
+
+        lock.lock()
+        for p in todo {
+            if let icon = index[p.name] ?? index[p.command] {
+                cache[p.name] = icon
+            } else {
+                // Bounded: a newly-launched app with a previously-missed name
+                // shows the glyph until the occasional reset re-resolves it.
+                if misses.count > 512 { misses.removeAll() }
+                misses.insert(p.name)
+            }
+        }
+        lock.unlock()
     }
 }
 
@@ -838,6 +910,10 @@ final class StatusModel: ObservableObject {
                 let rows = sampled.isEmpty ? fallback : sampled
                 var energies: [Int: UInt64] = [:]
                 for p in rows { energies[p.pid] = ProcessActions.energyNanojoules(pid: p.pid) }
+                // Pre-warm the app-icon cache off-main so the rows render from
+                // a pure cache read — never walking the running-app list on the
+                // main thread (Sentry BURROW-R / BURROW-T).
+                AppIcon.resolve(for: rows)
                 return ProcessSample(processes: sampled, energies: energies)
             }.value
         }

@@ -19,13 +19,14 @@ struct MoleInstallView: View {
     @State private var checking = false
     @State private var stillMissing = false
     @State private var copied = false
+    @State private var pollTimer: Timer?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Mole engine required", systemImage: "shippingbox")
                     .font(Brand.serif(20, .medium)).foregroundStyle(Brand.textPrimary)
-                Text("Burrow is a GUI for the Mole CLI (`mo`) — it does the scanning and cleanup. Install it, then Recheck.")
+                Text("Burrow is a GUI for the Mole CLI (`mo`) — it does the scanning and cleanup. Install it and Burrow will pick it up automatically.")
                     .font(Brand.sans(13)).foregroundStyle(Brand.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -74,6 +75,12 @@ struct MoleInstallView: View {
         .frame(width: 460, height: 320)
         .background(Color(hex: 0x14130E))
         .environment(\.colorScheme, .dark)
+        // Auto-detect `mo` appearing (e.g. right after `brew install mole`) and
+        // proceed on our own, so the user doesn't have to return and click
+        // Recheck — that manual step is the #1 onboarding drop-off
+        // (engine_missing). Polling stops as soon as the window closes.
+        .onAppear { startAutoDetect() }
+        .onDisappear { pollTimer?.invalidate(); pollTimer = nil }
     }
 
     private func recheck() {
@@ -85,5 +92,20 @@ struct MoleInstallView: View {
                 if found { onReady() } else { stillMissing = true }
             }
         }
+    }
+
+    /// Poll for `mo` showing up while this window is open and proceed on our
+    /// own. Uses the trusted-locations check only (no per-tick subprocess) —
+    /// `brew install mole` lands in /opt/homebrew/bin, which it covers; the
+    /// manual Recheck still does the full PATH lookup for unusual installs.
+    private func startAutoDetect() {
+        pollTimer?.invalidate()
+        let t = Timer(timeInterval: 2.0, repeats: true) { timer in
+            guard MoleCLI.trustedExecutable() != nil else { return }
+            timer.invalidate()
+            onReady()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        pollTimer = t
     }
 }

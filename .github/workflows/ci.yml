@@ -21,6 +21,12 @@ jobs:
   test:
     runs-on: macos-15
     timeout-minutes: 30
+    # The macOS app lives under macos/ (the repo is a monorepo: macos/ +
+    # windows/). xcodegen/xcodebuild run from there; checkout still lands at
+    # the repo root, so this only affects `run:` steps.
+    defaults:
+      run:
+        working-directory: macos
     steps:
       # Pinned to a commit SHA, not a floating tag (supply-chain hygiene;
       # comment keeps the version legible).

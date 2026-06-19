@@ -30,24 +30,29 @@ struct PopupView: View {
         // No ScrollView: the popover sizes to this content, so there's no
         // scrollbar (which, with "always show scrollbars", was eating width
         // and shifting everything left). Kept compact so it fits on screen.
-        VStack(alignment: .leading, spacing: 9) {
+        // Which sections appear is user-customizable (issue #82); read once per
+        // body eval, so a Settings change shows on the next popover open.
+        let sections = Store.popupSections
+        return VStack(alignment: .leading, spacing: 9) {
             if let s = model.snap {
-                header(s)
-                chipsRow(s)
+                if sections.contains(.header) { header(s) }
+                if sections.contains(.chips) { chipsRow(s) }
             } else {
                 fallbackHeader
             }
-            if ops.hasActivity { activitySection }   // running jobs up top, where they're seen
+            if sections.contains(.activity), ops.hasActivity { activitySection }
             if let s = model.snap {
-                metricGrid(s)
-                batteryCard(s)
-                topProcesses(s)
+                if sections.contains(.metrics) { metricGrid(s) }
+                if sections.contains(.battery) { batteryCard(s) }
+                if sections.contains(.processes) { topProcesses(s) }
             } else {
                 waiting
             }
-            utilityStrip
-            Rectangle().fill(Brand.hairline).frame(height: 1)
-            footer
+            if sections.contains(.utility) { utilityStrip }
+            if sections.contains(.footer) {
+                Rectangle().fill(Brand.hairline).frame(height: 1)
+                footer
+            }
         }
         .padding(13)
         .frame(width: 334)
@@ -232,30 +237,39 @@ struct PopupView: View {
     // MARK: Metric tiles — CPU · GPU · MEM · DISK · NET · FAN
 
     private func metricGrid(_ s: MoleStatus) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-            ValueTile(variant: .hud, eyebrow: "CPU", glyph: "cpu", accent: Brand.green,
-                      value: String(format: "%.0f", s.cpu.usage), unit: "%",
-                      chip: (s.thermal?.cpuTemp).flatMap { $0 > 0 ? (String(format: "%.0f°C", $0), Brand.orange) : nil },
-                      values: model.cpuHist, chartStyle: .bars,
-                      footnote: String(format: "load %.2f", s.cpu.load1))
-            ValueTile(variant: .hud, eyebrow: "GPU", glyph: "cpu.fill", accent: Brand.orange,
-                      value: gpuValue(s).0, unit: gpuValue(s).1,
-                      chip: (s.thermal?.gpuTemp).flatMap { $0 > 0 ? (String(format: "%.0f°C", $0), Brand.orange) : nil },
-                      values: model.gpuHist, chartStyle: .bars,
-                      footnote: (s.gpu?.first?.name ?? "GPU").replacingOccurrences(of: "Apple ", with: ""))
-            ValueTile(variant: .hud, eyebrow: "Memory", glyph: "memorychip", accent: Brand.amber,
-                      value: String(format: "%.0f", s.memory.usedPercent), unit: "%",
-                      chip: memChip(s),
-                      values: model.memHist, chartStyle: .area,
-                      footnote: String(format: "%.1f/%.0f GB · swap %.1f GB",
-                                       Fmt.gib(s.memory.used), Fmt.gib(s.memory.total), Fmt.gib(s.memory.swapUsed)))
-            diskTile(s)
-            ValueTile(variant: .hud, eyebrow: "Network", glyph: "network", accent: Brand.green,
-                      value: netValue(s).0, unit: netValue(s).1,
-                      chip: (s.network.first(where: { !$0.ip.isEmpty })?.name).map { ($0, Brand.blue) },
-                      values: model.netHist, chartStyle: .area,
-                      footnote: netFoot(s))
-            fanTile(s)
+        let tiles = Store.popupTiles   // which tiles the user wants (issue #82)
+        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+            if tiles.contains(.cpu) {
+                ValueTile(variant: .hud, eyebrow: "CPU", glyph: "cpu", accent: Brand.green,
+                          value: String(format: "%.0f", s.cpu.usage), unit: "%",
+                          chip: (s.thermal?.cpuTemp).flatMap { $0 > 0 ? (String(format: "%.0f°C", $0), Brand.orange) : nil },
+                          values: model.cpuHist, chartStyle: .bars,
+                          footnote: String(format: "load %.2f", s.cpu.load1))
+            }
+            if tiles.contains(.gpu) {
+                ValueTile(variant: .hud, eyebrow: "GPU", glyph: "cpu.fill", accent: Brand.orange,
+                          value: gpuValue(s).0, unit: gpuValue(s).1,
+                          chip: (s.thermal?.gpuTemp).flatMap { $0 > 0 ? (String(format: "%.0f°C", $0), Brand.orange) : nil },
+                          values: model.gpuHist, chartStyle: .bars,
+                          footnote: (s.gpu?.first?.name ?? "GPU").replacingOccurrences(of: "Apple ", with: ""))
+            }
+            if tiles.contains(.memory) {
+                ValueTile(variant: .hud, eyebrow: "Memory", glyph: "memorychip", accent: Brand.amber,
+                          value: String(format: "%.0f", s.memory.usedPercent), unit: "%",
+                          chip: memChip(s),
+                          values: model.memHist, chartStyle: .area,
+                          footnote: String(format: "%.1f/%.0f GB · swap %.1f GB",
+                                           Fmt.gib(s.memory.used), Fmt.gib(s.memory.total), Fmt.gib(s.memory.swapUsed)))
+            }
+            if tiles.contains(.diskUsage) { diskTile(s) }
+            if tiles.contains(.network) {
+                ValueTile(variant: .hud, eyebrow: "Network", glyph: "network", accent: Brand.green,
+                          value: netValue(s).0, unit: netValue(s).1,
+                          chip: (s.network.first(where: { !$0.ip.isEmpty })?.name).map { ($0, Brand.blue) },
+                          values: model.netHist, chartStyle: .area,
+                          footnote: netFoot(s))
+            }
+            if tiles.contains(.fan) { fanTile(s) }
         }
     }
 

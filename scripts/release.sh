@@ -13,7 +13,9 @@ cd "$(dirname "$0")/.."
 command -v xcodegen >/dev/null 2>&1 || { echo "need xcodegen — brew install xcodegen"; exit 1; }
 
 echo "==> xcodegen generate"
-xcodegen generate >/dev/null
+# The macOS app lives under macos/ (monorepo: macos/ + windows/). Generate the
+# project there; build artifacts still land at the repo root (build_dist/, dist/).
+( cd macos && xcodegen generate >/dev/null )
 
 # Telemetry keys (optional). Sourced from the gitignored scripts/release.env so
 # secrets never hit the repo. Absent → an honest no-telemetry release: empty
@@ -24,7 +26,7 @@ xcodegen generate >/dev/null
 
 echo "==> building Release (no Developer ID; ad-hoc signed below)"
 rm -rf build_dist
-xcodebuild -project Burrow.xcodeproj -scheme Burrow \
+xcodebuild -project macos/Burrow.xcodeproj -scheme Burrow \
   -configuration Release -destination 'generic/platform=macOS' \
   -derivedDataPath build_dist \
   CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
@@ -46,7 +48,7 @@ APP="build_dist/Build/Products/Release/Burrow.app"
 # new version must be re-granted — only a Developer ID identity avoids that.)
 echo "==> ad-hoc signing (stable code identity so Full Disk Access grants stick)"
 codesign --force --sign - \
-  --entitlements Resources/Burrow.entitlements \
+  --entitlements macos/Resources/Burrow.entitlements \
   "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 

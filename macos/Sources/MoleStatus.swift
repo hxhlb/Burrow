@@ -270,7 +270,9 @@ struct ThermalStatus: Codable {
 }
 
 /// Avoid the name `Process` to not collide with `Foundation.Process`.
-struct ProcessInfo: Codable {
+/// `Equatable` lets SwiftUI skip re-rendering process rows whose values are
+/// unchanged across a feed tick (part of the BURROW-1 layout-hang fix).
+struct ProcessInfo: Codable, Equatable {
     let pid: Int
     let ppid: Int?
     let name: String

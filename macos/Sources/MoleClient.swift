@@ -48,18 +48,11 @@ enum MoleClient {
         }
     }
 
-    /// Parse a human size string ("1.5GB", "250MB", "--") into bytes.
-    static func parseSize(_ s: String) -> Int64 {
-        let t = s.trimmingCharacters(in: .whitespaces).uppercased()
-        if t == "--" || t.isEmpty { return 0 }
-        let units: [(String, Double)] = [("TB", 1_099_511_627_776), ("GB", 1_073_741_824),
-                                         ("MB", 1_048_576), ("KB", 1024), ("B", 1)]
-        for (u, mult) in units where t.hasSuffix(u) {
-            let num = Double(t.dropLast(u.count).trimmingCharacters(in: .whitespaces)) ?? 0
-            return Int64(num * mult)
-        }
-        return Int64(Double(t) ?? 0)
-    }
+    /// Parse a human size string ("1.5GB", "250MB", "--") into bytes. Forwards
+    /// to the shared `Fmt.parseSize` (single source of truth, shared with
+    /// `CleanList.parseSize`); kept as a named entry so the typed-row decode
+    /// above and `MoleClientTests` read by intent at the call site.
+    static func parseSize(_ s: String) -> Int64 { Fmt.parseSize(s) }
 
     // MARK: - Other commands (delegate to the existing tested parsers)
 

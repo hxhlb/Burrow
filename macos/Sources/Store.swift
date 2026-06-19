@@ -22,8 +22,30 @@ enum CacheRemovalMode: String {
 }
 
 /// What the menu-bar status item renders (see `Store.menuBarDisplayMode`).
+///   * `.icon`    — the Burrow mark.
+///   * `.metrics` — the configured `menuBarItems` widget row.
+///   * `.runner`  — the animated runner icon (speed tracks a metric).
 enum MenuBarDisplayMode: String {
-    case icon, metrics
+    case icon, metrics, runner
+}
+
+/// A section of the menu-bar popover (`PopupView`) the user can show/hide
+/// (issue #82 — the popup is the surface they actually wanted to customize).
+enum PopupSection: String, Codable, CaseIterable, Identifiable {
+    case header, chips, activity, metrics, battery, processes, utility, footer
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .header:    return NSLocalizedString("Health header", comment: "")
+        case .chips:     return NSLocalizedString("Hardware chips", comment: "")
+        case .activity:  return NSLocalizedString("Activity (running jobs)", comment: "")
+        case .metrics:   return NSLocalizedString("Metric tiles", comment: "")
+        case .battery:   return NSLocalizedString("Battery card", comment: "")
+        case .processes: return NSLocalizedString("Top processes", comment: "")
+        case .utility:   return NSLocalizedString("Utility strip", comment: "")
+        case .footer:    return NSLocalizedString("Clean Watch footer", comment: "")
+        }
+    }
 }
 
 enum Store {
@@ -315,10 +337,62 @@ enum Store {
         set { write(newValue.rawValue, "cache_removal_mode") }
     }
 
-    /// What the status item shows: the Burrow mark, or live text metrics.
+    /// What the status item shows: the Burrow mark, or live metrics.
     static var menuBarDisplayMode: MenuBarDisplayMode {
         get { MenuBarDisplayMode(rawValue: d.string(forKey: "menu_bar_display_mode") ?? "") ?? .icon }
         set { write(newValue.rawValue, "menu_bar_display_mode") }
+    }
+
+    /// The ordered set of metric widgets the status item renders in
+    /// `.metrics` mode (see `MenuBarItem` / `MenuBarWidgets.swift`). Persisted
+    /// as JSON so the shape can grow without new keys. Falls back to the
+    /// historical CPU + memory pair, so users who already chose "metrics" see
+    /// no change until they customize.
+    static var menuBarItems: [MenuBarItem] {
+        get {
+            guard let data = d.data(forKey: "menu_bar_items"),
+                  let items = try? JSONDecoder().decode([MenuBarItem].self, from: data),
+                  !items.isEmpty
+            else { return MenuBarItem.defaults }
+            return items
+        }
+        set { write(try? JSONEncoder().encode(newValue), "menu_bar_items") }
+    }
+
+    /// Which popover sections the user wants visible. Default = all (the
+    /// historical full layout), so existing users see no change until they
+    /// customize. Stored as a JSON array of raw values.
+    static var popupSections: Set<PopupSection> {
+        get {
+            guard let data = d.data(forKey: "popup_sections"),
+                  let raw = try? JSONDecoder().decode([String].self, from: data)
+            else { return Set(PopupSection.allCases) }
+            return Set(raw.compactMap(PopupSection.init(rawValue:)))
+        }
+        set { write(try? JSONEncoder().encode(newValue.map(\.rawValue)), "popup_sections") }
+    }
+
+    /// Which metric tiles the popover's grid shows. Default = all six.
+    static var popupTiles: Set<MenuBarMetric> {
+        get {
+            guard let data = d.data(forKey: "popup_tiles"),
+                  let raw = try? JSONDecoder().decode([String].self, from: data)
+            else { return Set(MenuBarMetric.popupGrid) }
+            return Set(raw.compactMap(MenuBarMetric.init(rawValue:)))
+        }
+        set { write(try? JSONEncoder().encode(newValue.map(\.rawValue)), "popup_tiles") }
+    }
+
+    /// The animated menu-bar runner (RunCat-style): an icon whose playback
+    /// speed tracks a chosen metric. Off by default. See `MenuBarRunner.swift`.
+    static var runnerConfig: RunnerConfig {
+        get {
+            guard let data = d.data(forKey: "runner_config"),
+                  let cfg = try? JSONDecoder().decode(RunnerConfig.self, from: data)
+            else { return RunnerConfig() }
+            return cfg
+        }
+        set { write(try? JSONEncoder().encode(newValue), "runner_config") }
     }
 
     /// Whether closing the last window drops the Dock icon (the classic

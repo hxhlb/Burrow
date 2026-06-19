@@ -2,20 +2,20 @@
 //  MoEngineTests.swift
 //  BurrowTests
 //
-//  Boundary tests for the unified runner facade (issue #48, slice 2). The
-//  capture + elevated + discovery entry points all delegate to injected ports,
-//  so they're driven here with scripted fakes — same seam style as
-//  MoleProcessTests (capture port) and PrivilegeBrokerTests (elevation port).
+//  Boundary tests for the unified runner facade (issue #48). The capture +
+//  discovery entry points delegate to injected ports, so they're driven here
+//  with scripted fakes — same seam style as MoleProcessTests (capture port).
+//  (The one-shot elevated path is NOT on the facade; its wiring is covered by
+//  PrivilegeBrokerTests against `MoleCLI.runElevatedClassified`.)
 //
 //  The point of these tests is the WIRING: that a `MoCommand` lands on the
-//  capture runner as the exact argv/stdin/env/timeout it described, that a
+//  capture runner as the exact argv/stdin/env/timeout it described, and that a
 //  `.mo` target resolves through the locator (and degrades to a clean nonzero
-//  exit when `mo` is missing), and that the elevated path routes the TRUSTED
-//  binary to the broker — never a PATH lookup. The streaming and PTY shapes
-//  (slice 3, completing #48) are wired the same way: `stream(_:)` forwards the
-//  spec to the injected `ProcessPort` and returns its events untouched, and
-//  `interactive()` vends a FRESH session from the injected PTY factory each
-//  call — so two hosts can never share one stateful pty.
+//  exit when `mo` is missing). The streaming and PTY shapes are wired the same
+//  way: the exposed `streamPort` forwards the spec to the injected
+//  `ProcessPort` and returns its events untouched, and `interactive()` vends a
+//  FRESH session from the injected PTY factory each call — so two hosts can
+//  never share one stateful pty.
 //
 
 import XCTest
@@ -52,26 +52,11 @@ final class MoEngineTests: XCTestCase {
         }
     }
 
-    /// Canned discovery: the normal lookup and the trusted-only lookup are
-    /// separately settable so a test can prove the elevated path takes the
-    /// trusted one.
+    /// Canned discovery: the normal lookup is settable so a test can drive
+    /// resolution deterministically.
     private struct FakeLocator: MoLocator {
         var located: String?
-        var trusted: String?
         func locate() -> String? { located }
-        func locateTrusted() -> String? { trusted }
-    }
-
-    /// In-memory stand-in for osascript: records the elevated (exe, args) and
-    /// replays a canned outcome — no auth dialog.
-    private final class FakeBroker: PrivilegeBroker, @unchecked Sendable {
-        private(set) var calls: [(executable: String, args: [String])] = []
-        var outcome: ElevatedOutcome
-        init(outcome: ElevatedOutcome) { self.outcome = outcome }
-        func openElevated(executable: String, args: [String]) -> ElevatedOutcome {
-            calls.append((executable, args))
-            return outcome
-        }
     }
 
     /// Records the streamed spec and replays a canned event script — no real
@@ -213,44 +198,6 @@ final class MoEngineTests: XCTestCase {
         XCTAssertEqual(engine.availability(), .missing)
     }
 
-    // MARK: - Elevated one-shot
-
-    func testRunElevatedClassified_routesTrustedBinaryToTheBroker() {
-        let broker = FakeBroker(outcome: .exited(0))
-        // The normal lookup points one place; the elevated path must use the
-        // TRUSTED lookup — never PATH — so a shadowed binary can't get root.
-        let engine = MoEngine(privilegeBroker: broker,
-                              locator: FakeLocator(located: "/untrusted/mo",
-                                                   trusted: "/opt/homebrew/bin/mo"))
-
-        let outcome = engine.runElevatedClassified(args: ["touchid", "enable"])
-
-        XCTAssertEqual(outcome, .exited(0))
-        XCTAssertEqual(broker.calls.count, 1)
-        XCTAssertEqual(broker.calls.first?.executable, "/opt/homebrew/bin/mo",
-                       "elevated runs resolve through the trusted list, never the normal lookup")
-        XCTAssertEqual(broker.calls.first?.args, ["touchid", "enable"])
-    }
-
-    func testRunElevatedClassified_noTrustedBinaryIsLaunchFailedAndNeverReachesTheBroker() {
-        let broker = FakeBroker(outcome: .exited(0))
-        let engine = MoEngine(privilegeBroker: broker,
-                              locator: FakeLocator(located: "/untrusted/mo", trusted: nil))
-
-        XCTAssertEqual(engine.runElevatedClassified(args: ["touchid", "enable"]), .launchFailed)
-        XCTAssertTrue(broker.calls.isEmpty, "a missing trusted mo must never reach the elevation spawn")
-    }
-
-    func testRunElevatedClassified_authCancelIsDistinctFromCommandFailure() {
-        let cancel = MoEngine(privilegeBroker: FakeBroker(outcome: .authCancelled),
-                              locator: FakeLocator(trusted: "/opt/homebrew/bin/mo"))
-        XCTAssertEqual(cancel.runElevatedClassified(args: ["touchid", "enable"]), .authCancelled)
-
-        let failed = MoEngine(privilegeBroker: FakeBroker(outcome: .exited(2)),
-                              locator: FakeLocator(trusted: "/opt/homebrew/bin/mo"))
-        XCTAssertEqual(failed.runElevatedClassified(args: ["touchid", "disable"]), .exited(2))
-    }
-
     // MARK: - Streaming (clean / optimize)
 
     func testStream_forwardsTheSpecToThePortUntouched() {
@@ -260,7 +207,7 @@ final class MoEngineTests: XCTestCase {
         let spec = ProcessSpec(executable: "/usr/local/bin/mo",
                                arguments: ["clean", "--dry-run"],
                                stdin: nil, elevated: false, timeout: 30)
-        _ = engine.stream(spec)
+        _ = engine.streamPort.events(spec)
 
         // The facade is a pass-through: the port sees the exact spec, never a
         // rewritten one. (Argv/elevation are destructive-path inputs — they
@@ -279,7 +226,7 @@ final class MoEngineTests: XCTestCase {
 
         var lines: [String] = []
         var exit: Int32?
-        for await event in engine.stream(ProcessSpec(executable: "/usr/local/bin/mo",
+        for await event in engine.streamPort.events(ProcessSpec(executable: "/usr/local/bin/mo",
                                                      arguments: ["clean"], stdin: nil,
                                                      elevated: false, timeout: nil)) {
             switch event {
@@ -300,7 +247,7 @@ final class MoEngineTests: XCTestCase {
         let engine = MoEngine(streamPort: port)
 
         var sawAuthCancel = false
-        for await event in engine.stream(ProcessSpec(executable: "/usr/local/bin/mo",
+        for await event in engine.streamPort.events(ProcessSpec(executable: "/usr/local/bin/mo",
                                                      arguments: ["clean"], stdin: nil,
                                                      elevated: true, timeout: nil)) {
             if case .authCancelled = event { sawAuthCancel = true }
@@ -315,7 +262,7 @@ final class MoEngineTests: XCTestCase {
         let engine = MoEngine()
         var lines: [String] = []
         var exit: Int32?
-        for await event in engine.stream(ProcessSpec(executable: "/bin/sh",
+        for await event in engine.streamPort.events(ProcessSpec(executable: "/bin/sh",
                                                      arguments: ["-c", "printf 'a\\nb\\n'; exit 0"],
                                                      stdin: nil, elevated: false, timeout: nil)) {
             switch event {

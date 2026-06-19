@@ -24,8 +24,9 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
-struct InstalledApp: Identifiable {
+struct InstalledApp: Identifiable, Equatable {
     let id: String
     let name: String
     let bundleId: String
@@ -435,24 +436,69 @@ struct AppRow: View {
 }
 
 enum SoftwareIcons {
+    private static let lock = NSLock()
     private static var cache: [String: NSImage] = [:]
     private static var versions: [String: String?] = [:]
+    private static let resolveQueue = DispatchQueue(label: "dev.caezium.burrow.softwareicons", qos: .utility)
+    /// Generic app-bundle icon shown for the brief window before an off-main
+    /// resolve fills the cache (the normal flow pre-warms, so this is rare).
+    private static let placeholder = NSWorkspace.shared.icon(for: .applicationBundle)
 
+    /// Icon for an app bundle. MAIN-SAFE: returns the cached icon, or a generic
+    /// placeholder while an off-main resolve fills the cache (the row picks up
+    /// the real icon on a later redraw). `NSWorkspace.icon(forFile:)` reads the
+    /// bundle, so calling it per row during layout stalled the app list on its
+    /// first paint (Sentry BURROW-20) — that read now happens off the main
+    /// thread, pre-warmed by `prewarm(_:)` from the off-main app fetch.
     static func icon(_ path: String) -> NSImage {
-        if let c = cache[path] { return c }
-        let img = NSWorkspace.shared.icon(forFile: path)
-        cache[path] = img
-        return img
+        lock.lock()
+        let cached = cache[path]
+        lock.unlock()
+        if let cached { return cached }
+        resolveQueue.async { resolve([path]) }
+        return placeholder
     }
 
-    /// CFBundleShortVersionString, cached (nil cached too — most reads
-    /// repeat during scrolling).
+    /// CFBundleShortVersionString. MAIN-SAFE: the cached value, or nil while an
+    /// off-main resolve runs (nil is cached too — most reads repeat). Reading
+    /// Info.plist is disk I/O, so it never runs on the calling thread.
     static func version(_ path: String) -> String? {
-        if let v = versions[path] { return v }
-        let plist = (path as NSString).appendingPathComponent("Contents/Info.plist")
-        let v = NSDictionary(contentsOfFile: plist)?["CFBundleShortVersionString"] as? String
-        versions[path] = v
-        return v
+        lock.lock()
+        let cached = versions[path]
+        lock.unlock()
+        if let cached { return cached }
+        resolveQueue.async { resolve([path]) }
+        return nil
+    }
+
+    /// Resolve icons + versions for a set of apps, filling the shared cache.
+    /// Call from an OFF-MAIN context (the app fetch) so the rows then render
+    /// from pure cache reads instead of reading the disk during layout.
+    static func prewarm(_ apps: [InstalledApp]) {
+        resolve(apps.map(\.path))
+    }
+
+    /// MUST run off the main thread (disk I/O per path).
+    private static func resolve(_ paths: [String]) {
+        for path in paths {
+            lock.lock()
+            let needIcon = cache[path] == nil
+            let needVersion = versions[path] == nil
+            lock.unlock()
+            if !needIcon && !needVersion { continue }
+
+            let img = needIcon ? NSWorkspace.shared.icon(forFile: path) : nil
+            var version: String?
+            if needVersion {
+                let plist = (path as NSString).appendingPathComponent("Contents/Info.plist")
+                version = NSDictionary(contentsOfFile: plist)?["CFBundleShortVersionString"] as? String
+            }
+
+            lock.lock()
+            if let img { cache[path] = img }
+            if needVersion { versions[path] = version }
+            lock.unlock()
+        }
     }
 }
 
@@ -600,7 +646,13 @@ final class SoftwareModel: ObservableObject {
     private static func fetch() -> [InstalledApp] {
         // `mo uninstall --list` computes a size for every installed app, which can
         // take a while on a full /Applications — the client gives it room.
-        MoleClient.listApps()
+        let apps = MoleClient.listApps()
+        // Pre-warm the icon + version cache here — `fetch` always runs on a
+        // background queue, so the per-bundle icon/Info.plist disk reads happen
+        // off-main and the rows then render from a pure cache read instead of
+        // hitting the disk during layout (Sentry BURROW-20: InstalledApp hang).
+        SoftwareIcons.prewarm(apps)
+        return apps
     }
 
     /// Best-effort "last used" from the filesystem (access date, falling back to

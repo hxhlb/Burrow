@@ -139,6 +139,12 @@ final class OperationFlow<Report: Sendable>: ObservableObject {
     /// One-shot per run: Burrow has already reclaimed focus from the auth
     /// dialog, don't keep stealing it.
     private var reactivated = false
+    /// Last time the live `report` was recomputed. `reduce()` re-parses the
+    /// whole accumulated transcript, so reducing on every streamed line is
+    /// O(n²) on the main actor — it stalled long clean/optimize runs (Sentry
+    /// BURROW-1G / BURROW-1F). The live re-parse is throttled to ~4×/s;
+    /// terminal events still do a final, authoritative reduce.
+    private var lastReportAt = Date.distantPast
 
     /// Pull key focus back to Burrow after an elevated run's auth dialog
     /// relinquished it elsewhere. No-op for un-elevated runs (no dialog) and
@@ -184,6 +190,7 @@ final class OperationFlow<Report: Sendable>: ObservableObject {
                                stdin: op.stdin, elevated: op.elevated, timeout: op.timeout)
         state = .running
         report = nil
+        lastReportAt = .distantPast
         rawLog = ""
         currentElevated = op.elevated
         currentLabel = op.label
@@ -205,7 +212,15 @@ final class OperationFlow<Report: Sendable>: ObservableObject {
                     // focus back to Burrow, instead of making the user ⌘-tab.
                     self.reactivateIfElevated(op)
                     lines.append(l)
-                    self.report = op.reduce(lines)
+                    // Throttled live re-parse (see `lastReportAt`): recompute
+                    // at most ~4×/s instead of on every streamed line. The
+                    // terminal events below always do a final, authoritative
+                    // reduce, so the result screen is never left stale.
+                    let now = Date()
+                    if now.timeIntervalSince(self.lastReportAt) > 0.25 {
+                        self.lastReportAt = now
+                        self.report = op.reduce(lines)
+                    }
                     if op.label != nil, !l.trimmingCharacters(in: .whitespaces).isEmpty {
                         self.center.detail(id, (op.hudLine ?? { $0 })(l))
                     }

@@ -2,29 +2,29 @@
 //  MoEngine.swift
 //  Burrow
 //
-//  The single entry point to the `mo` runners (issue #48). Burrow grew three
+//  The single entry point to the `mo` runners (issue #48). Burrow grew several
 //  process shapes — capture (small one-shot commands), streaming (clean /
-//  optimize), and PTY (purge / installer) — plus a one-shot elevated path,
-//  each found and spawned at its own call site. `MoEngine` is the ONE facade
-//  callers reach for so "how do I run mo?" has a single answer.
+//  optimize), and interactive PTY (purge / installer) — each found and spawned
+//  at its own call site. `MoEngine` is the ONE facade callers reach for so
+//  "how do I run mo?" has a single answer.
 //
-//  All FOUR process shapes now hang off this one facade (issue #48 complete):
-//  CAPTURE + ELEVATED + DISCOVERY (slice 2) plus STREAMING (clean / optimize)
-//  and interactive PTY (purge / installer), added here. Every shape delegates
-//  to the existing, tested port — the facade does NOT reimplement any spawn,
-//  elevation, or PTY internals; it just funnels "how do I run mo?" to one type.
+//  Three shapes hang off the facade as methods — CAPTURE, DISCOVERY, and
+//  interactive PTY — each delegating to the existing, tested port; the facade
+//  does NOT reimplement any spawn or PTY internals. STREAMING is reached
+//  through the EXPOSED `streamPort` (not a wrapper method): `OperationFlow`
+//  holds the `any ProcessPort` to drive its own reduce/notify/auth-cancel loop,
+//  so the facade hands it the production port rather than the stream. The
+//  one-shot ELEVATED path is NOT on the facade — it stays in
+//  `MoleCLI.runElevatedClassified` (trusted-location resolution + the shared
+//  `PrivilegeBroker`), the path production has always used.
 //
 //  Behavior is preserved exactly: a `capture(_:)` call produces the same argv,
-//  stdin, environment, timeout, and result fields that `MoleCLI.run` did;
-//  `runElevatedClassified` routes through the same `PrivilegeBroker` against
-//  the same trusted-location resolution; `stream(_:)` hands back the SAME
-//  `AsyncStream<ProcessEvent>` `SystemProcessPort` already produced (the
-//  elevated-osascript-tail, auth-cancel classification, and line-splitting are
-//  untouched); and `interactive()` vends a FRESH `PTYTask` whose raw,
-//  escape-preserving output the `SelectionSession` reducer depends on. The
-//  ports are injected (production defaults are the real ones) so every shape is
-//  testable with scripted fakes, matching the seams `MoleCLI`/`MoleProcess`/
-//  `PrivilegeBroker`/`ProcessPort`/`PTYPort` already expose.
+//  stdin, environment, timeout, and result fields that `MoleCLI.run` did, and
+//  `interactive()` vends a FRESH `PTYTask` whose raw, escape-preserving output
+//  the `SelectionSession` reducer depends on. The ports are injected
+//  (production defaults are the real ones) so every shape is testable with
+//  scripted fakes, matching the seams `MoleCLI`/`MoleProcess`/`ProcessPort`/
+//  `PTYPort` already expose.
 //
 
 import Foundation
@@ -89,37 +89,32 @@ enum Availability: Equatable {
 }
 
 /// Discovery seam. Production resolves through `MoleCLI` (PATH + known
-/// locations, cached + revalidated for normal lookups; trusted-locations-only
-/// for elevated runs); tests inject a fake to drive resolution deterministically.
+/// locations, cached + revalidated); tests inject a fake to drive resolution
+/// deterministically.
 protocol MoLocator: Sendable {
     /// The `mo` for a normal (unelevated) run — PATH allowed.
     func locate() -> String?
-    /// The `mo` for an ELEVATED run — known install locations ONLY, never a
-    /// user-writable PATH entry (running an attacker-shadowed binary as root is
-    /// the whole threat model).
-    func locateTrusted() -> String?
 }
 
 /// The production locator: delegates to `MoleCLI`'s existing discovery so the
-/// caching/revalidation and trusted-only semantics stay in one place.
+/// caching/revalidation stays in one place.
 struct SystemMoLocator: MoLocator {
     func locate() -> String? { MoleCLI.findExecutable() }
-    func locateTrusted() -> String? { MoleCLI.trustedExecutable() }
 }
 
 // MARK: - Facade
 
-/// The one runner facade. All four `mo` process shapes — capture, elevated
-/// one-shot, streaming, and interactive PTY — plus discovery hang off this
-/// type; the ports are injected so every path is testable in memory.
+/// The one runner facade. The `mo` process shapes callers reach for — capture,
+/// discovery, and interactive PTY — hang off this type as methods, and the
+/// streaming port is exposed for `OperationFlow`; the ports are injected so
+/// every path is testable in memory.
 final class MoEngine {
     private let processPort: MoleProcessPort
-    private let privilegeBroker: PrivilegeBroker
     private let locator: MoLocator
-    /// The streaming-op spawn port (clean / optimize). Exposed (not just used
-    /// by `stream(_:)`) so `OperationFlow`, which holds an `any ProcessPort`
-    /// and drives its own reduce/notify/auth-cancel loop, can take the facade's
-    /// production port as its default without the facade reaching into that loop.
+    /// The streaming-op spawn port (clean / optimize). Exposed so
+    /// `OperationFlow`, which holds an `any ProcessPort` and drives its own
+    /// reduce/notify/auth-cancel loop, can take the facade's production port as
+    /// its default without the facade reaching into that loop.
     let streamPort: ProcessPort
     /// Vends a FRESH interactive PTY session per call. A factory, not a shared
     /// instance, because a `PTYTask` is stateful per launch and each selection
@@ -127,19 +122,16 @@ final class MoEngine {
     /// would stomp each other's child and keystrokes.
     private let makePTY: @Sendable () -> PTYPort
 
-    /// Production singleton. Wraps the real capture runner, the real osascript
-    /// broker, `MoleCLI` discovery, the real streaming port, and the real PTY —
-    /// the exact spawn paths the migrated call sites used before, just funneled
-    /// through one type.
+    /// Production singleton. Wraps the real capture runner, `MoleCLI` discovery,
+    /// the real streaming port, and the real PTY — the exact spawn paths the
+    /// migrated call sites used before, just funneled through one type.
     static let shared = MoEngine()
 
     init(processPort: MoleProcessPort = SystemMoleProcess(),
-         privilegeBroker: PrivilegeBroker = SystemPrivilegeBroker(),
          locator: MoLocator = SystemMoLocator(),
          streamPort: ProcessPort = SystemProcessPort(),
          makePTY: @escaping @Sendable () -> PTYPort = { PTYTask() }) {
         self.processPort = processPort
-        self.privilegeBroker = privilegeBroker
         self.locator = locator
         self.streamPort = streamPort
         self.makePTY = makePTY
@@ -187,33 +179,6 @@ final class MoEngine {
             exitCode: result.exitCode,
             timedOut: result.timedOut
         )
-    }
-
-    // MARK: Elevated one-shot
-
-    /// Run `mo <args>` ONCE with administrator rights, returning the classified
-    /// outcome (`.authCancelled` distinguished from a command that ran and
-    /// failed). Resolves through the TRUSTED locations only — never PATH — and
-    /// routes through the same `PrivilegeBroker` the one-shot config commands
-    /// (`touchid enable/disable`) already use. No `mo` in a trusted spot →
-    /// `.launchFailed`, matching the old guard.
-    func runElevatedClassified(args: [String]) -> ElevatedOutcome {
-        guard let mo = locator.locateTrusted() else { return .launchFailed }
-        return privilegeBroker.openElevated(executable: mo, args: args)
-    }
-
-    // MARK: Streaming (clean / optimize)
-
-    /// Stream a long-running `mo` op line-by-line. Hands the spec straight to
-    /// the injected streaming port and returns its `AsyncStream<ProcessEvent>`
-    /// unchanged — the plain/elevated spawn, the osascript temp-log tail, the
-    /// ANSI strip + line split, and the auth-cancel classification all stay in
-    /// `SystemProcessPort`. Cancelling the consuming task still terminates the
-    /// child via the stream's `onTermination`, exactly as before. The caller
-    /// (`OperationFlow`) owns the reduce/notify/cancel loop; this is only the
-    /// spawn source.
-    func stream(_ spec: ProcessSpec) -> AsyncStream<ProcessEvent> {
-        streamPort.events(spec)
     }
 
     // MARK: Interactive PTY (purge / installer)

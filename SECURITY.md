@@ -29,7 +29,7 @@ This is the part people rightly scrutinize in cleaners. Burrow's model:
   authorization dialog** asks for your password, and Burrow runs the
   matching `mo` command for that single action, then exits. You see and
   approve every elevation. (See `CommandRunner.runElevated` in
-  `Sources/TaskReport.swift`.)
+  `macos/Sources/TaskReport.swift`.)
 - **Honest caveat:** that elevation runs your Homebrew-installed `mo` as
   root. On a default Apple-Silicon Homebrew, `/opt/homebrew` is
   user-writable, so treat `mo` like any binary you'd `sudo` — only as

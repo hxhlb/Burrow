@@ -107,21 +107,12 @@ struct CleanList: Equatable {
                          summaryItemCount: summaryItems)
     }
 
-    /// "2.24GB" → bytes (1024-based, matching the engine's humanized
-    /// sizes closely enough for selection totals).
-    static func parseSize(_ text: String) -> Int64 {
-        let t = text.trimmingCharacters(in: .whitespaces).uppercased()
-        let units: [(String, Double)] = [
-            ("TB", 1_099_511_627_776), ("GB", 1_073_741_824),
-            ("MB", 1_048_576), ("KB", 1024), ("B", 1),
-        ]
-        for (suffix, multiplier) in units where t.hasSuffix(suffix) {
-            let number = t.dropLast(suffix.count).trimmingCharacters(in: .whitespaces)
-            guard let value = Double(number) else { return 0 }
-            return Int64(value * multiplier)
-        }
-        return 0
-    }
+    /// "2.24GB" → bytes (1024-based, matching the engine's humanized sizes
+    /// closely enough for selection totals). Forwards to the shared
+    /// `Fmt.parseSize` — the single source of truth, also used by
+    /// `MoleClient.parseSize`; kept as a named entry the streamed-line and
+    /// selection-total call sites (and `CleanListTests`) read by intent.
+    static func parseSize(_ text: String) -> Int64 { Fmt.parseSize(text) }
 
     /// Live count-up support (design 2.1): the bytes one streamed dry-run
     /// line contributes. Only per-item "…, <size> dry" lines count;
