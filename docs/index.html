@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Burrow · Free, open-source native Mac utility for cleanup, software, and status</title>
-<meta name="description" content="Burrow is a free, open-source native macOS app: clean junk, manage apps, run maintenance, map your disk, and watch live status in one window. Plus long-range history and an MCP server for Claude Code. Built on the Mole CLI.">
+<title>Burrow · Free, open-source desktop utility for cleanup, software, and status — macOS & Windows</title>
+<meta name="description" content="Burrow is a free, open-source native desktop app for macOS (and Windows, in beta): clean junk, manage apps, run maintenance, map your disk, and watch live status in one window. Plus long-range history and an MCP server for Claude Code. Built on the Mole engine.">
 <meta name="theme-color" content="#121217">
 <link rel="icon" type="image/png" href="burrow-icon.png">
 <link rel="apple-touch-icon" href="burrow-icon-512.png">
 
 <meta property="og:type" content="website">
-<meta property="og:title" content="Burrow · Free, open-source native Mac utility">
-<meta property="og:description" content="Clean junk, manage apps, run maintenance, map your disk, and watch live status — in one native Mac app. Free and MIT-licensed. Plus history and an MCP server.">
+<meta property="og:title" content="Burrow · Free, open-source desktop utility — macOS & Windows">
+<meta property="og:description" content="Clean junk, manage apps, run maintenance, map your disk, and watch live status — in one native desktop app. Native on macOS, now in beta on Windows. Free and MIT-licensed. Plus history and an MCP server.">
 <meta property="og:image" content="https://burrow.henryzh.dev/burrow-icon-512.png">
 <meta property="og:url" content="https://burrow.henryzh.dev/">
 <meta name="twitter:card" content="summary">
@@ -321,9 +321,9 @@
       <svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path d="M14 74 a36 36 0 0 1 72 0 Z" fill="#F3ECDD"/><rect x="38" y="74" width="24" height="7" rx="3.5" fill="#121217"/></svg>
     </h1>
     <div class="tagchip"><span class="d"></span>Clean · Analyze · Status — free &amp; open source</div>
-    <p class="sub">Remove junk, manage apps, run maintenance, analyze disk usage, and watch live status — in one native Mac app. Free, and open source.</p>
+    <p class="sub">Remove junk, manage apps, run maintenance, analyze disk usage, and watch live status — in one native desktop app. <b>Native on macOS, now in beta on Windows.</b> Free, and open source.</p>
     <div class="meta">
-      <b>Free</b><span class="dot">·</span><b>MIT</b> open source<span class="dot">·</span>built on the Mole CLI<span class="dot">·</span>adds history + an MCP server<span class="dot">·</span>EN / 简体 / 繁體<span class="dot">·</span>macOS&nbsp;14+
+      <b>Free</b><span class="dot">·</span><b>MIT</b> open source<span class="dot">·</span>built on the Mole engine<span class="dot">·</span>adds history + an MCP server<span class="dot">·</span>EN / 简体 / 繁體<span class="dot">·</span>macOS&nbsp;14+<span class="dot">·</span>Windows&nbsp;10/11&nbsp;<b>(beta)</b>
     </div>
     <div class="cta">
       <a class="btn btn-fill" href="#price">Install with Homebrew</a>
@@ -338,7 +338,7 @@
   <!-- ===== mole.fit disclaimer ===== -->
   <div class="disclaimer-note">
     <p>Burrow is an independent open-source project built on the same <span class="cmd">mo</span> engine as <a href="https://mole.fit/" target="_blank" rel="noopener">mole.fit</a> (the official Mole for Mac app by <span class="cmd">mo</span>'s author), but it is <b>not affiliated with or endorsed by mole.fit</b> — its own name, mark, palette, and copy are original.</p>
-    <p>If you want it and to fund <span class="cmd">mo</span>'s development — <a href="https://mole.fit/" target="_blank" rel="noopener">buy mole.fit ($9)</a>.</p>
+    <p>If you want it and to fund <span class="cmd">mo</span>'s development — <a href="https://mole.fit/" target="_blank" rel="noopener">buy mole.fit ($19)</a>.</p>
   </div>
 
   <!-- ===== 00 · See it ===== -->
@@ -530,9 +530,13 @@ open  /Applications/Burrow.app</div>
         <h3>Build from source</h3>
         <p>Needs <code class="k">xcodegen</code> + <code class="k">mole</code>. Every line is yours to read first.</p>
         <div class="code" data-copy="git clone https://github.com/caezium/Burrow.git
-cd Burrow && xcodegen generate"><button class="copy">copy</button>git clone …/caezium/Burrow.git
-cd Burrow && xcodegen generate</div>
+cd Burrow/macos && xcodegen generate"><button class="copy">copy</button>git clone …/caezium/Burrow.git
+cd Burrow/macos && xcodegen generate</div>
       </div>
+    </div>
+
+    <div class="price-meta" style="margin-top:22px; text-align:center;">
+      <b style="color:var(--accent)">Windows&nbsp;10/11 (beta)</b><span class="dot">·</span>build from source under <code class="k">windows/</code> (installer coming)<span class="dot">·</span><a class="u" href="https://github.com/caezium/Burrow/tree/main/windows" target="_blank" rel="noopener">windows/ on GitHub</a>
     </div>
   </section>
 
@@ -543,9 +547,11 @@ cd Burrow && xcodegen generate</div>
       <details class="qa"><summary>How is Burrow different from the <code class="k">mo</code> CLI?</summary>
         <div class="a"><code class="k">mo</code> is the free, open-source terminal engine that does the real work. Burrow is the native Mac GUI around it — disk maps, a status dashboard, the menu-bar HUD, multi-select uninstall, one-click workflows — plus two things the CLI doesn't have: a long-range metric history and an MCP server for agents.</div></details>
       <details class="qa"><summary>Is it really free?</summary>
-        <div class="a">Yes — free and MIT-licensed, with no accounts, ads or upsells. If you'd rather have a polished, signed, supported app and want to fund the <code class="k">mo</code> engine, <a class="u" href="https://mole.fit/" target="_blank" rel="noopener">mole.fit</a> is $9 and worth it. Burrow is the open-source alternative for people who want the source and the agent hooks.</div></details>
+        <div class="a">Yes — free and MIT-licensed, with no accounts, ads or upsells. If you'd rather have a polished, signed, supported app and want to fund the <code class="k">mo</code> engine, <a class="u" href="https://mole.fit/" target="_blank" rel="noopener">mole.fit</a> is $19 and worth it. Burrow is the open-source alternative for people who want the source and the agent hooks.</div></details>
       <details class="qa"><summary>Why does it need the Mole CLI?</summary>
         <div class="a">Burrow doesn't reimplement cleaning or analysis — it drives the audited <code class="k">mo</code> binary and bundles nothing from it. That keeps Burrow thin and means the dangerous work runs through a tool you can audit independently. <code class="k">brew install mole</code> first, or Burrow refuses to launch.</div></details>
+      <details class="qa"><summary>Does Burrow run on Windows?</summary>
+        <div class="a">It's getting there — a native <b>WinUI 3 / .NET 8</b> port is in active <b>beta</b>, reaching parity with the Mac app tool-by-tool (Clean, Purge, Installers, Optimize, Software, Analyze, Status, History, and the MCP server). macOS is the mature flagship; Windows is build-from-source for now (an installer is coming), under <code class="k">windows/</code> in the repo. Track it on <a class="u" href="https://github.com/caezium/Burrow/tree/main/windows" target="_blank" rel="noopener">GitHub</a>.</div></details>
       <details class="qa"><summary>Is it signed and notarized?</summary>
         <div class="a">Not yet — Burrow is unsigned and pre-1.0. Every install path clears the Gatekeeper quarantine for you (<code class="k">xattr -cr</code> or the Homebrew cask). The honest trade-offs are in <a class="u" href="https://github.com/caezium/Burrow/blob/main/SECURITY.md" target="_blank" rel="noopener">SECURITY.md</a>.</div></details>
       <details class="qa"><summary>Does it work without Full Disk Access? Does it upload anything?</summary>
@@ -568,7 +574,7 @@ cd Burrow && xcodegen generate</div>
           <div class="name">Burrow ·
             <svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path d="M14 74 a36 36 0 0 1 72 0 Z" fill="#F3ECDD"/><rect x="38" y="74" width="24" height="7" rx="3.5" fill="#121217"/></svg>
           </div>
-          <div class="tag">A free, open-source native Mac utility for cleanup, software, and status.</div>
+          <div class="tag">A free, open-source native desktop utility for cleanup, software, and status — macOS &amp; Windows (beta).</div>
         </div>
       </div>
       <div class="foot-right">
