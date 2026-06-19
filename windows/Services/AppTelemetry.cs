@@ -189,6 +189,9 @@ public static class AppTelemetry
             // "Discard client IP data").
             ["$ip"] = "0",
             ["$lib"] = "burrow-win",
+            // Explicit discriminator: the Windows app shares the macOS PostHog
+            // project (free-plan 1-project limit), so dashboards filter on this.
+            ["platform"] = "windows",
             ["app_version"] = AppInfo.Version,
             ["os_version"] = AppInfo.OsVersion,
             ["arch"] = AppInfo.Arch,

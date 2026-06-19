@@ -63,8 +63,9 @@ This is the part people rightly scrutinize in cleaners. Burrow's model:
   [`Sources/CrashReporter.swift`](Sources/CrashReporter.swift). Both SDKs are
   **inert in source/dev builds** — keys are injected only at release time, so
   a build from this repo phones neither home. The **Windows app** does the same
-  thing against **separate Windows-only Sentry/PostHog projects** (opt-out via
-  **Settings → Share crash reports & analytics**); client code is
+  thing (opt-out via **Settings → Share crash reports & analytics**) — its own
+  separate Sentry project, and the **shared** macOS PostHog project tagged
+  `platform: "windows"`; client code is
   [`windows/Services/AppTelemetry.cs`](windows/Services/AppTelemetry.cs), keys
   injected via `BURROWWIN_SENTRY_DSN` / `BURROWWIN_POSTHOG_API_KEY` — see
   **[TELEMETRY.md](TELEMETRY.md)**.

@@ -98,13 +98,19 @@ transmitted while opted out. There is no server-side deletion call.
 
 ## Windows app
 
-The Windows app (`windows/`, WinUI 3 / .NET 8) reports to **its own, separate
-Sentry and PostHog projects** — never the macOS projects. That keeps the two
-platforms isolated with no shared project and no cross-platform discriminator
-flag, and means nothing here changes the macOS pipeline.
+The Windows app (`windows/`, WinUI 3 / .NET 8) reports through the same
+hosts as the table above (`us.i.posthog.com`; Sentry ingest from the release
+DSN), but its projects differ:
 
-Same hosts as the table above (`us.i.posthog.com`; Sentry ingest from the
-release DSN). Client code:
+- **Crash reporting → its own separate Sentry project** (`burrow-windows`),
+  isolated from the macOS `burrow` project.
+- **Analytics → the *same* PostHog project as macOS.** PostHog's free plan
+  caps an org at one project, so rather than gate this on a paid upgrade the
+  Windows app reuses the macOS project and tags every event with
+  **`platform: "windows"`** (plus `$lib: "burrow-win"`) so the two platforms
+  filter apart cleanly in dashboards. macOS events carry no `platform` key.
+
+Either way nothing here changes the macOS pipeline. Client code:
 [`windows/Services/AppTelemetry.cs`](windows/Services/AppTelemetry.cs) (both
 SDKs) and
 [`windows/Services/TelemetryConfig.cs`](windows/Services/TelemetryConfig.cs).
@@ -116,9 +122,10 @@ Same ground rules, enforced the same way:
   is hard-muted and Sentry is `Close()`d, immediately.
 - **Inert without keys.** DSN/key are injected only at release time through
   env vars **`BURROWWIN_SENTRY_DSN`**, **`BURROWWIN_POSTHOG_API_KEY`**, and
-  optional **`BURROWWIN_POSTHOG_HOST`** (separate from the macOS
-  `SENTRY_DSN` / `POSTHOG_API_KEY`). Local/dev builds set none, so telemetry
-  never starts.
+  optional **`BURROWWIN_POSTHOG_HOST`**. The Sentry DSN is the separate
+  `burrow-windows` project's; the PostHog key is the **same** one the macOS
+  build uses (shared project). Local/dev builds set none, so telemetry never
+  starts.
 - **Identity is random.** An anonymous GUID persisted at
   `%LOCALAPPDATA%\BurrowWin\telemetry-id` — never derived from hardware,
   serial, or account.
@@ -133,5 +140,5 @@ PostHog on Windows is delivered by a small hand-rolled HTTPS `POST` to
 our control. Events wired now: `app_opened` (`cold_start`),
 `telemetry_opt_in_changed` (`enabled`), plus whatever the global exception
 handlers report to Sentry (`xaml_unhandled` / `domain_unhandled` /
-`task_unobserved`). Super properties: `app_version`, `os_version` (e.g.
-`Windows 10.0.26100.0`), `arch`.
+`task_unobserved`). Super properties: `platform: "windows"`, `app_version`,
+`os_version` (e.g. `Windows 10.0.26100.0`), `arch`.
