@@ -506,7 +506,7 @@ enum SoftwareIcons {
 
 @MainActor
 final class SoftwareModel: ObservableObject {
-    @Published var apps: [InstalledApp] = []
+    @Published var apps: [InstalledApp] = [] { didSet { rebuildLoweredNames() } }
     @Published var loading = false
     @Published var error: String?
     @Published var query = ""
@@ -521,13 +521,28 @@ final class SoftwareModel: ObservableObject {
     @Published var pathSelections: [String: Set<String>] = [:]
     private var started = false
 
+    /// `id` → lowercased name, rebuilt once per `apps` load. The search field
+    /// filters on every keystroke, so doing the ICU case-folding
+    /// (`u_isUAlphabetic`, `icu::CharString::append`) per app per keystroke
+    /// over a 100+ app list hung the main thread (Sentry App Hang). Folding
+    /// once up front turns each keystroke into a plain substring scan.
+    private var loweredNames: [String: String] = [:]
+
+    private func rebuildLoweredNames() {
+        var map = [String: String](minimumCapacity: apps.count)
+        for a in apps { map[a.id] = a.name.lowercased() }
+        loweredNames = map
+    }
+
     var filtered: [InstalledApp] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let base = q.isEmpty ? apps : apps.filter { $0.name.lowercased().contains(q) }
+        let base = q.isEmpty ? apps : apps.filter { (loweredNames[$0.id] ?? $0.name.lowercased()).contains(q) }
         let sorted: [InstalledApp]
         switch sort {
         case .size:   sorted = base.sorted { $0.sizeBytes > $1.sizeBytes }
-        case .name:   sorted = base.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        // Compare the pre-folded names instead of a per-pair
+        // `localizedCaseInsensitiveCompare` (ICU) on every keystroke.
+        case .name:   sorted = base.sorted { (loweredNames[$0.id] ?? "") < (loweredNames[$1.id] ?? "") }
         case .recent: sorted = base.sorted { ($0.lastUsed ?? .distantPast) > ($1.lastUsed ?? .distantPast) }
         }
         return sortAscending ? sorted.reversed() : sorted
@@ -828,7 +843,16 @@ final class SoftwareModel: ObservableObject {
 final class StartupModel: ObservableObject {
     enum Filter { case all, agents, daemons, problems }
 
-    @Published var items: [StartupItem] = []
+    @Published var items: [StartupItem] = [] { didSet { rebuildLoweredLabels() } }
+    /// `label` → lowercased label, folded once per `items` load so the search
+    /// field doesn't re-run ICU case-folding per item on every keystroke
+    /// (same App-Hang pattern as the app list).
+    private var loweredLabels: [String: String] = [:]
+    private func rebuildLoweredLabels() {
+        var map = [String: String](minimumCapacity: items.count)
+        for i in items { map[i.label] = i.label.lowercased() }
+        loweredLabels = map
+    }
     /// Labels currently disabled in the per-user launchd database.
     @Published var disabled: Set<String> = []
     @Published var loading = false
@@ -878,7 +902,7 @@ final class StartupModel: ObservableObject {
         }
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return base }
-        return base.filter { $0.label.lowercased().contains(q) }
+        return base.filter { (loweredLabels[$0.label] ?? $0.label.lowercased()).contains(q) }
     }
 
     var sections: [(title: String, items: [StartupItem])] {

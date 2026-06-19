@@ -540,7 +540,9 @@ struct HistoryView: View {
     /// re-sorts in place — no reload.
     private var rankedProcesses: [ProcessRow] {
         switch procMetric {
-        case .cpu: return snapshot.topProcesses.sorted { $0.peakCPU > $1.peakCPU }
+        // topProcesses is already built sorted by peakCPU descending (see the
+        // snapshot builder), so the default CPU view needs no per-body re-sort.
+        case .cpu: return snapshot.topProcesses
         case .ram: return snapshot.topProcesses.sorted {
             ($0.peakMemBytes, $0.peakMem) > ($1.peakMemBytes, $1.peakMem)
         }

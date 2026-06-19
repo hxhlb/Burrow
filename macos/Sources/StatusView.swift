@@ -522,7 +522,7 @@ struct ProcessCard: View {
     @State private var showAll = false
 
     var body: some View {
-        let all = model.sortedProcesses()
+        let all = model.sortedRows
         let rows = showAll ? all : Array(all.prefix(Self.rowCap))
         let hidden = all.count - rows.count
         return GlassCard(padding: 0) {
@@ -852,6 +852,12 @@ final class StatusModel: ObservableObject {
     /// 2 s tick off-main. Empty until the first pass (or on spawn failure)
     /// — the table then falls back to the snapshot's engine top five.
     @Published var processes: [ProcessInfo] = []
+    /// Pre-sorted, pinned-first rows for the table. Recomputed off the
+    /// SwiftUI body — only when an input actually changes (process list,
+    /// energies, sort key/direction, pins) — so the 1 s snapshot tick that
+    /// re-evaluates `ProcessCard.body` no longer re-sorts hundreds of rows
+    /// on the main thread (Sentry BURROW-1 / BURROW-N App Hang).
+    @Published var sortedRows: [ProcessInfo] = []
 
     let db: DB
     private let live: LiveFeed
@@ -877,6 +883,11 @@ final class StatusModel: ObservableObject {
     func subscribeSnapshot() async {
         for await v in feeds.liveSnapshot(live).subscribeValues() {
             snap = v.snap
+            // Only the degraded path (no live `ps` rows) depends on the
+            // snapshot's engine top five, and that's ~5 rows — cheap to
+            // re-sort each tick. The normal path keeps its cached rows so
+            // the 1 s tick doesn't re-sort the full process set.
+            if processes.isEmpty { recomputeSortedRows() }
         }
     }
 
@@ -919,22 +930,30 @@ final class StatusModel: ObservableObject {
         }
         for await v in feed.subscribeValues() {
             // Empty pass (spawn failure) keeps the table on the snapshot's
-            // engine top five — sortedProcesses() falls back when empty.
+            // engine top five — recomputeSortedRows() falls back when empty.
             processes = v.processes
             energies = v.energies
+            recomputeSortedRows()
         }
     }
 
     func setSort(_ key: ProcSort) {
         if sortKey == key { sortAsc.toggle() }
         else { sortKey = key; sortAsc = (key == .name) }
+        recomputeSortedRows()
     }
 
     func togglePin(_ pid: Int) {
         if pinned.contains(pid) { pinned.remove(pid) } else { pinned.insert(pid) }
+        recomputeSortedRows()
     }
 
-    func sortedProcesses() -> [ProcessInfo] {
+    /// Re-sort the table from the current inputs and publish the result into
+    /// `sortedRows`. O(n log n) over a few hundred rows, but run once per
+    /// real change instead of once per `ProcessCard.body` evaluation — the
+    /// body now just reads the cached array. Must run on the main actor (it
+    /// mutates a `@Published`); every caller already does.
+    func recomputeSortedRows() {
         let procs = processes.isEmpty ? (snap?.topProcesses ?? []) : processes
         let sorted = procs.sorted { a, b in
             switch sortKey {
@@ -949,7 +968,7 @@ final class StatusModel: ObservableObject {
         }
         let pin = sorted.filter { pinned.contains($0.pid) }
         let rest = sorted.filter { !pinned.contains($0.pid) }
-        return pin + rest
+        sortedRows = pin + rest
     }
 
 }

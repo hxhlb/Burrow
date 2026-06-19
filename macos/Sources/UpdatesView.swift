@@ -331,8 +331,12 @@ final class UpdatesModel: ObservableObject {
                 }
             }
             let brews = await Self.brewOutdated()
+            // Sort off the main actor — `localizedCaseInsensitiveCompare` is
+            // ICU work, and the only thing the hop needs to publish is the
+            // already-ordered array.
+            let sortedItems = updated.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             await MainActor.run {
-                self.appItems = updated.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                self.appItems = sortedItems
                 self.brewItems = brews
                 self.checking = false
                 self.checked = true

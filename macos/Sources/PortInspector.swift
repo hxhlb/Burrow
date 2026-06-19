@@ -110,11 +110,18 @@ enum PortInspector {
     /// shows the busiest connections regardless of state.
     static func sorted(_ ports: [ListeningPort], by key: SortKey, ascending: Bool,
                        rates: [Int: NetUsage.Rates]) -> [ListeningPort] {
+        // Fold process names once up front for the `.process` sort instead of
+        // re-lowercasing both sides inside every O(n log n) comparison. Same
+        // pid → same name, so collisions collapse harmlessly.
+        let lowered: [Int: String] = key == .process
+            ? Dictionary(ports.map { ($0.pid, $0.process.lowercased()) }, uniquingKeysWith: { a, _ in a })
+            : [:]
         let s = ports.sorted { a, b in
             switch key {
             case .port:    return a.port != b.port ? a.port < b.port : a.process < b.process
             case .process:
-                let (pa, pb) = (a.process.lowercased(), b.process.lowercased())
+                let pa = lowered[a.pid] ?? a.process.lowercased()
+                let pb = lowered[b.pid] ?? b.process.lowercased()
                 return pa != pb ? pa < pb : a.port < b.port
             case .peer:    return (a.remoteAddress ?? "") < (b.remoteAddress ?? "")
             case .down:    return (rates[a.pid]?.down ?? 0) < (rates[b.pid]?.down ?? 0)
