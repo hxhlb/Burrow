@@ -50,7 +50,7 @@ struct DoctorView: View {
         }
         .scrollIndicators(.hidden)
         .fadeEdges()
-        .task { reload() }
+        .task { await reload() }
     }
 
     private func row(_ c: Doctor.Check) -> some View {
@@ -94,7 +94,7 @@ struct DoctorView: View {
         }
     }
 
-    private func reload() {
+    private func reload() async {
         let latest = MetricsStore(db: db).latest()?.status
         var free: Int64 = 0, total: Int64 = 0
         if let d = latest?.disks.max(by: { $0.total < $1.total }) {
@@ -106,12 +106,22 @@ struct DoctorView: View {
         let p = (latest?.memory.pressure ?? "").lowercased()
         let pressure: Doctor.MemoryPressure = p.contains("critical") ? .critical
             : (p.contains("warn") ? .warning : .normal)
+        let fullDiskAccess = Privacy.hasFullDiskAccess()
+        let recentErrorCount = MetricsStore.driftCounters.decodeSkippedTotal
+        // `tmutil latestbackup` and `system_profiler SPNVMeDataType` each spawn a
+        // subprocess and block on waitUntilExit() — system_profiler routinely
+        // takes seconds. Running them inline here (`.task` is MainActor-isolated)
+        // froze the main thread long enough to trip Sentry's ≥2000ms App Hang
+        // detector. Probe off the main thread, then publish on the main actor.
+        let probes = await Task.detached(priority: .utility) {
+            (backup: BackupStatus.lastBackupDaysAgo(), smart: DiskHealth.smartVerified())
+        }.value
         checks = Doctor.report(.init(
-            fullDiskAccess: Privacy.hasFullDiskAccess(),
+            fullDiskAccess: fullDiskAccess,
             moInstalled: moInstalled, pressure: pressure,
             diskFreeBytes: free, diskTotalBytes: total,
-            recentErrorCount: MetricsStore.driftCounters.decodeSkippedTotal,
-            lastBackupDaysAgo: BackupStatus.lastBackupDaysAgo(),
-            smartVerified: DiskHealth.smartVerified()))
+            recentErrorCount: recentErrorCount,
+            lastBackupDaysAgo: probes.backup,
+            smartVerified: probes.smart))
     }
 }
