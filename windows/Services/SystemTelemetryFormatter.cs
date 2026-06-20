@@ -1,4 +1,5 @@
 using BurrowWin.Models;
+using System.Globalization;
 
 namespace BurrowWin.Services;
 
@@ -6,7 +7,9 @@ public static class SystemTelemetryFormatter
 {
     public static string Percent(double value)
     {
-        return $"{Math.Clamp(value, 0, 100):0.#}%";
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{Math.Clamp(value, 0, 100):0.#}%");
     }
 
     public static string Bytes(long value)
@@ -20,7 +23,9 @@ public static class SystemTelemetryFormatter
             index++;
         }
 
-        return index == 0 ? $"{size:0} {units[index]}" : $"{size:0.#} {units[index]}";
+        return index == 0
+            ? string.Create(CultureInfo.InvariantCulture, $"{size:0} {units[index]}")
+            : string.Create(CultureInfo.InvariantCulture, $"{size:0.#} {units[index]}");
     }
 
     public static string Rate(double bytesPerSecond)

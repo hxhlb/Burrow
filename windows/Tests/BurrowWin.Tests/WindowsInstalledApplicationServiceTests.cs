@@ -89,10 +89,32 @@ public sealed class WindowsInstalledApplicationServiceTests
 
         Assert.False(WindowsInstalledApplicationService.IsSafeDeletionTarget(root));
         Assert.False(WindowsInstalledApplicationService.IsSafeDeletionTarget(Environment.GetFolderPath(Environment.SpecialFolder.Windows)));
+        Assert.False(WindowsInstalledApplicationService.IsSafeDeletionTarget(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            "System32")));
+        Assert.False(WindowsInstalledApplicationService.IsSafeDeletionTarget(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "Demo")));
     }
 
     [Fact]
-    public async Task RemoveLeftoversAsync_RemovesSafeDirectory()
+    public void IsSafeLeftoverCandidate_AllowsOnlyGeneratedAppDataTargets()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        Assert.True(WindowsInstalledApplicationService.IsSafeLeftoverCandidate(
+            new("Local app data", Path.Combine(localAppData, "ExampleApp"), 1)));
+        Assert.False(WindowsInstalledApplicationService.IsSafeLeftoverCandidate(
+            new("Local app data", Path.Combine(localAppData, "Microsoft", "Windows"), 1)));
+        Assert.False(WindowsInstalledApplicationService.IsSafeLeftoverCandidate(
+            new("Install location", Path.Combine(profile, "Downloads", "ExampleApp"), 1)));
+        Assert.False(WindowsInstalledApplicationService.IsSafeLeftoverCandidate(
+            new("Program data", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ExampleApp"), 1)));
+    }
+
+    [Fact]
+    public async Task RemoveLeftoversAsync_RoutesSafeDirectoryThroughDeletionService()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "BurrowWinTests", Guid.NewGuid().ToString("N"));
         var target = Path.Combine(tempRoot, "DemoApp");
@@ -101,13 +123,15 @@ public sealed class WindowsInstalledApplicationServiceTests
 
         try
         {
-            var service = new WindowsInstalledApplicationService();
+            var deletionService = new RecordingSafeDeletionService();
+            var service = new WindowsInstalledApplicationService(deletionService);
 
             var results = await service.RemoveLeftoversAsync([new("Test", target, 4)]);
 
             var result = Assert.Single(results);
             Assert.True(result.Succeeded, result.Message);
-            Assert.False(Directory.Exists(target));
+            Assert.Single(deletionService.DeletedPaths);
+            Assert.Equal(Path.GetFullPath(target), deletionService.DeletedPaths[0]);
         }
         finally
         {

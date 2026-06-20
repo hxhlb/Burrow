@@ -2,6 +2,27 @@
 Burrow.xcodeproj/
 *.xcworkspace/
 
+# Visual Studio / .NET / WinUI
+.vs/
+.vscode/
+bin/
+obj/
+artifacts/
+TestResults/
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Windows packaging and publish outputs
+publish/
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.msixupload
+
 # Xcode build artifacts
 build/
 build_dist/

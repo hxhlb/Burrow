@@ -33,6 +33,7 @@ public sealed class PurgeArtifactService : IPurgeArtifactService
         "go.mod",
         "pom.xml",
         "build.gradle",
+        "CMakeLists.txt",
         "requirements.txt",
         "pyproject.toml",
         "*.csproj",
@@ -57,10 +58,10 @@ public sealed class PurgeArtifactService : IPurgeArtifactService
         new("bin", ArtifactKind.Directory, ".NET"),
         new("obj", ArtifactKind.Directory, ".NET"),
         new(".gradle", ArtifactKind.Directory, "Java/Gradle"),
-        new(".idea", ArtifactKind.Directory, "JetBrains IDE"),
         new("*.log", ArtifactKind.File, "Logs")
     ];
 
+    private readonly ISafeDeletionService _safeDeletionService;
     private readonly string _userProfile;
     private readonly string _configFile;
 
@@ -71,12 +72,34 @@ public sealed class PurgeArtifactService : IPurgeArtifactService
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 ".config",
                 "mole",
-                "purge_paths.txt"))
+                "purge_paths.txt"),
+            new RecycleBinDeletionService())
+    {
+    }
+
+    public PurgeArtifactService(ISafeDeletionService safeDeletionService)
+        : this(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".config",
+                "mole",
+                "purge_paths.txt"),
+            safeDeletionService)
     {
     }
 
     public PurgeArtifactService(string userProfile, string configFile)
+        : this(userProfile, configFile, new RecycleBinDeletionService())
     {
+    }
+
+    public PurgeArtifactService(
+        string userProfile,
+        string configFile,
+        ISafeDeletionService safeDeletionService)
+    {
+        _safeDeletionService = safeDeletionService;
         _userProfile = userProfile;
         _configFile = configFile;
     }
@@ -107,7 +130,7 @@ public sealed class PurgeArtifactService : IPurgeArtifactService
                         continue;
                     }
 
-                    var artifacts = FindArtifacts(directory, cancellationToken);
+                    var artifacts = FindArtifacts(directory, marker, cancellationToken);
                     if (artifacts.Count == 0)
                     {
                         continue;
@@ -276,12 +299,18 @@ public sealed class PurgeArtifactService : IPurgeArtifactService
 
     private static IReadOnlyList<PurgeArtifactCandidate> FindArtifacts(
         string projectPath,
+        string projectMarker,
         CancellationToken cancellationToken)
     {
         var artifacts = new List<PurgeArtifactCandidate>();
         foreach (var pattern in ArtifactPatterns)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!IsPatternAllowedForProject(pattern, projectPath, projectMarker))
+            {
+                continue;
+            }
+
             IEnumerable<string> matches;
             try
             {
@@ -347,29 +376,17 @@ public sealed class PurgeArtifactService : IPurgeArtifactService
         }
     }
 
-    private static LeftoverRemovalResult RemoveArtifact(string projectRoot, PurgeArtifactCandidate artifact)
+    private LeftoverRemovalResult RemoveArtifact(string projectRoot, PurgeArtifactCandidate artifact)
     {
         var artifactPath = Path.GetFullPath(artifact.Path);
-        if (!IsPathUnder(projectRoot, artifactPath) || !IsAllowedArtifact(artifactPath, artifact.Type))
+        if (!IsPathUnder(projectRoot, artifactPath) || !IsAllowedArtifact(projectRoot, artifactPath, artifact.Type))
         {
             return new LeftoverRemovalResult(artifact.Path, false, "Path is outside the purge preview scope.", artifact.SizeBytes);
         }
 
         try
         {
-            if (string.Equals(artifact.Type, ArtifactKind.Directory.ToString(), StringComparison.OrdinalIgnoreCase))
-            {
-                if (Directory.Exists(artifactPath))
-                {
-                    Directory.Delete(artifactPath, recursive: true);
-                }
-            }
-            else if (File.Exists(artifactPath))
-            {
-                File.Delete(artifactPath);
-            }
-
-            return new LeftoverRemovalResult(artifact.Path, true, "Removed", artifact.SizeBytes);
+            return _safeDeletionService.DeleteFileOrDirectory(artifactPath, artifact.SizeBytes);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -384,13 +401,66 @@ public sealed class PurgeArtifactService : IPurgeArtifactService
         return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsAllowedArtifact(string path, string type)
+    private static bool IsAllowedArtifact(string projectRoot, string path, string type)
     {
+        var marker = FindProjectMarker(projectRoot);
+        if (marker is null)
+        {
+            return false;
+        }
+
         var name = Path.GetFileName(path);
         return ArtifactPatterns.Any(pattern =>
             string.Equals(pattern.Kind.ToString(), type, StringComparison.OrdinalIgnoreCase) &&
+            IsPatternAllowedForProject(pattern, projectRoot, marker) &&
             (string.Equals(pattern.Name, name, StringComparison.OrdinalIgnoreCase) ||
              (pattern.Name == "*.log" && name.EndsWith(".log", StringComparison.OrdinalIgnoreCase))));
+    }
+
+    private static bool IsPatternAllowedForProject(
+        ArtifactPattern pattern,
+        string projectRoot,
+        string projectMarker)
+    {
+        return pattern.Name switch
+        {
+            "node_modules" or ".next" or ".nuxt" or ".turbo" or ".parcel-cache" =>
+                HasProjectFile(projectRoot, "package.json"),
+            "vendor" => HasProjectFile(projectRoot, "composer.json") || HasProjectFile(projectRoot, "go.mod"),
+            ".venv" or "venv" or "__pycache__" or ".pytest_cache" =>
+                HasProjectFile(projectRoot, "pyproject.toml") || HasProjectFile(projectRoot, "requirements.txt"),
+            "target" =>
+                HasProjectFile(projectRoot, "Cargo.toml") ||
+                HasProjectFile(projectRoot, "pom.xml") ||
+                HasProjectFile(projectRoot, "build.gradle"),
+            "bin" or "obj" => HasAnyFile(projectRoot, "*.csproj") || HasAnyFile(projectRoot, "*.sln"),
+            "build" or "dist" =>
+                (HasProjectFile(projectRoot, "package.json") && HasAnyPackageLock(projectRoot)) ||
+                (HasProjectFile(projectRoot, "CMakeLists.txt") &&
+                 Directory.Exists(Path.Combine(projectRoot, pattern.Name)) &&
+                 File.Exists(Path.Combine(projectRoot, pattern.Name, "CMakeCache.txt"))),
+            ".gradle" => HasProjectFile(projectRoot, "build.gradle"),
+            "*.log" => projectMarker.Length > 0,
+            _ => true
+        };
+    }
+
+    private static bool HasAnyPackageLock(string projectRoot)
+    {
+        return HasProjectFile(projectRoot, "package-lock.json") ||
+               HasProjectFile(projectRoot, "pnpm-lock.yaml") ||
+               HasProjectFile(projectRoot, "yarn.lock") ||
+               HasProjectFile(projectRoot, "bun.lockb");
+    }
+
+    private static bool HasProjectFile(string projectRoot, string fileName)
+    {
+        return File.Exists(Path.Combine(projectRoot, fileName));
+    }
+
+    private static bool HasAnyFile(string projectRoot, string pattern)
+    {
+        return Directory.EnumerateFiles(projectRoot, pattern, SearchOption.TopDirectoryOnly).Any();
     }
 
     private sealed record ArtifactPattern(string Name, ArtifactKind Kind, string Language);

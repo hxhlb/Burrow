@@ -26,7 +26,7 @@ Current Windows-specific adaptations:
 - Status uses native Windows telemetry because `mo status` is currently a TUI wrapper on Windows.
 - A background telemetry sampler records snapshots every 60 seconds and is now the shared source for Dashboard, History, HTTP, MCP, tray status menu, and tray HUD.
 - Analyze uses a native size-ranked tree plus Burrow-style treemap because `mo analyze` is currently interactive on Windows.
-- Cleanup uses Mole `clean --dry-run`, parses Mole's exported clean list, and presents preview results as a read-only Mole plan because the Windows command does not support per-row GUI selection.
+- Cleanup is currently a guarded pending route in the WinUI preview. It does not claim a stable GUI preview/removal flow until Mole Windows exposes a safe non-interactive cleanup contract.
 - Purge now uses a Burrow-style non-interactive preview/removal flow built from the same Windows Mole project markers and artifact patterns because Mole Windows `mo purge` is an interactive selector and does not expose `--dry-run`.
 - Installers uses a Burrow-style preview/removal flow for old top-level Downloads installers and archives, mirroring Mole Windows `Clear-OldDownloads` rules because Mole Windows documents that there is no dedicated installer-file cleanup command yet.
 - Optimize uses Mole `optimize --dry-run` for preview and requires explicit confirmation before real `mo optimize` changes.
@@ -54,15 +54,14 @@ Current Windows-specific adaptations:
 - HTTP runtime settings changes are covered by `HttpServerSettingsPlannerTests`, including no-op, start, stop, restart, and disabled-stays-disabled decisions.
 - `.\run-local.ps1 -NoBuild -SmokeTest -Restart -RequireHealth -TimeoutSeconds 45` starts the x64 Debug GUI, confirms the `BurrowWin` main window is visible, confirms `/health` returns `ok: true`, and writes startup diagnostics to `%LOCALAPPDATA%\BurrowWin\startup.log`.
 - `.\run-local.ps1 -NoBuild -SmokeTest -Restart -RequireHealth -Route purge -TimeoutSeconds 45` starts the x64 Debug GUI, confirms `/health` returns `ok: true`, and startup diagnostics record `Opening startup route: purge`.
-- `.\run-local.ps1 -NoBuild -SmokeTest -Restart -RequireHealth -Route clean -CleanAutoScan -TimeoutSeconds 90` starts the x64 Debug GUI, confirms `/health` returns `ok: true`, waits for startup diagnostics to record `Opening startup route: clean`, and waits for `Clean autoscan finished`.
-- The Clean autoscan smoke records Mole `clean --dry-run` in `%LOCALAPPDATA%\BurrowWin\history.jsonl`, confirming the read-only preview still flows through the shared Mole command/activity path.
+- Clean GUI scan/clean is intentionally not counted as complete in this preview; the current route shows the pending state and does not run cleanup.
 - `.\run-local.ps1 -NoBuild -SmokeTest -Restart -RequireHealth -Route optimize -OptimizeAutoScan -TimeoutSeconds 120` starts the x64 Debug GUI, confirms `/health` returns `ok: true`, waits for startup diagnostics to record `Opening startup route: optimize`, and waits for `Optimize auto-preview finished`.
 - The Optimize autoscan smoke records Mole `optimize --dry-run` in `%LOCALAPPDATA%\BurrowWin\history.jsonl` with a normalized summary, confirming the preview path stays tied to the shared Mole command/activity path without terminal escape output.
 - `.\run-local.ps1 -NoBuild -SmokeTest -Restart -RequireHealth -Route settings -TimeoutSeconds 45` starts the x64 Debug GUI, confirms `/health` returns `ok: true`, and waits for startup diagnostics to record `Opening startup route: settings`.
 - `run-local.ps1` now supports `-ScreenshotPath` for repeatable local GUI evidence. The capture path restores the BurrowWin window, brings it to the foreground, writes a PNG, and then releases the topmost state.
 - Screenshot smoke captured `artifacts\ui-smoke\burrowwin-settings.png`, `artifacts\ui-smoke\burrowwin-history.png`, `artifacts\ui-smoke\burrowwin-clean.png`, `artifacts\ui-smoke\burrowwin-installer.png`, and `artifacts\ui-smoke\burrowwin-analyze.png` from the same `run-local.ps1` health-gated GUI startup flow.
 - The History screenshot smoke confirms the Burrow-style range selector and CPU, memory, disk, and network trend cards render on the default `1h` range.
-- The Clean screenshot smoke uses `-CleanAutoScan`, waits for `Clean autoscan finished`, and confirms the Burrow-style Clean landing surface plus preview item panel renders after Mole `clean --dry-run`.
+- Clean screenshot evidence needs to be refreshed against the pending-state route before claiming any GUI cleanup preview.
 - `.\run-local.ps1 -NoBuild -SmokeTest -Restart -RequireHealth -Route installer -InstallerRoot artifacts\installer-smoke -InstallerAutoScan -TimeoutSeconds 45` starts the x64 Debug GUI, confirms `/health` returns `ok: true`, waits for startup diagnostics to record `Opening startup route: installer`, and fails if the current launch records a XAML unhandled exception.
 - Installer autoscan diagnostics from the sample directory record `Installer autoscan finished: 3 files - 14 KB`, proving the page applied the old Downloads installer/archive matcher and ignored the fresh sample file.
 - The Installer screenshot smoke uses an absolute sample root and visually confirms the 3 old installer/archive rows, sizes, dates, and preview/remove action area.
@@ -92,7 +91,7 @@ Current Windows-specific adaptations:
 - Move history storage closer to upstream Burrow's SQLite/WAL model or prove the JSONL store meets the same retention, pruning, and query requirements.
 - Broaden History screenshot/UI automation from the default rendered range to explicit range-switching interactions.
 - Replace Windows fallbacks with Mole JSON paths when the Mole windows branch exposes safe non-interactive contracts for status, analyze, uninstall, purge, and installer scans.
-- Harden all destructive operations with a single shared preview-first operation flow, cancellation, progress streaming, operation-center activity state, and explicit confirmation gates.
+- Keep hardening destructive operations through shared Recycle Bin deletion, strict path guards, cancellation, progress streaming, operation-center activity state, and explicit confirmation gates.
 - Add pixel/interaction comparison for the Windows Burrow visual shell against the upstream reference screens, beyond the current route-level screenshot smoke.
 
 ## Completion criteria for this port

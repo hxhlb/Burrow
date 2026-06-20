@@ -290,11 +290,26 @@ function Test-ProtectedPath {
         Check if a path is protected and should never be modified
     #>
     param([string]$Path)
-    
-    $normalizedPath = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
+
+    $normalizedPath = Resolve-SafePath -Path $Path
+    if (-not $normalizedPath) {
+        return $true
+    }
+
+    if (Test-DriveRootPath -Path $normalizedPath) {
+        return $true
+    }
+
+    if ($normalizedPath.StartsWith('\\', [StringComparison]::Ordinal)) {
+        return $true
+    }
     
     foreach ($protected in $script:ProtectedPaths) {
-        $normalizedProtected = [System.IO.Path]::GetFullPath($protected).TrimEnd('\')
+        $normalizedProtected = Resolve-SafePath -Path $protected
+        if (-not $normalizedProtected) {
+            continue
+        }
+
         if ($normalizedPath -eq $normalizedProtected -or 
             $normalizedPath.StartsWith("$normalizedProtected\", [StringComparison]::OrdinalIgnoreCase)) {
             return $true
@@ -340,14 +355,83 @@ function Resolve-SafePath {
         Resolve and validate a path for safe operations
     #>
     param([string]$Path)
-    
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
     try {
-        $resolved = [System.IO.Path]::GetFullPath($Path)
-        return $resolved
+        $expanded = [Environment]::ExpandEnvironmentVariables($Path.Trim())
+        if ([string]::IsNullOrWhiteSpace($expanded) -or $expanded.Contains('%')) {
+            return $null
+        }
+
+        return [System.IO.Path]::GetFullPath($expanded).TrimEnd('\', '/')
     }
     catch {
         return $null
     }
+}
+
+function Test-DriveRootPath {
+    <#
+    .SYNOPSIS
+        Reject drive roots such as C:\ before any cleanup operation.
+    #>
+    param([string]$Path)
+
+    $normalizedPath = Resolve-SafePath -Path $Path
+    if (-not $normalizedPath) {
+        return $true
+    }
+
+    $root = [System.IO.Path]::GetPathRoot($normalizedPath)
+    if ([string]::IsNullOrWhiteSpace($root)) {
+        return $true
+    }
+
+    $normalizedRoot = [System.IO.Path]::GetFullPath($root).TrimEnd('\', '/')
+    return $normalizedPath -eq $normalizedRoot
+}
+
+function Test-AllowedCleanupRoot {
+    <#
+    .SYNOPSIS
+        Ensure cleanups stay inside user-cache/media/download roots.
+    #>
+    param([string]$Path)
+
+    $normalizedPath = Resolve-SafePath -Path $Path
+    if (-not $normalizedPath) {
+        return $false
+    }
+
+    $allowedRoots = @(
+        $env:TEMP
+        [System.IO.Path]::GetTempPath()
+        $env:LOCALAPPDATA
+        $env:APPDATA
+        (Join-Path $env:USERPROFILE 'Downloads')
+        (Join-Path $env:USERPROFILE '.cache')
+        (Join-Path $env:USERPROFILE 'Videos')
+        (Join-Path $env:USERPROFILE 'Pictures')
+        (Join-Path $env:USERPROFILE 'Documents')
+        $script:Config.CachePath
+        $script:Config.ConfigPath
+    )
+
+    foreach ($root in $allowedRoots) {
+        $normalizedRoot = Resolve-SafePath -Path $root
+        if (-not $normalizedRoot) {
+            continue
+        }
+
+        if ($normalizedPath.StartsWith("$normalizedRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+
+    return $false
 }
 
 # ============================================================================

@@ -18,19 +18,9 @@ public static class HttpServerSettingsPlanner
         BurrowSettings settings)
     {
         var normalized = BurrowSettings.Normalize(settings);
-        if (!activeHttpEnabled && !normalized.HttpServerEnabled)
-        {
-            return HttpServerSettingsAction.None;
-        }
-
         if (!activeHttpEnabled)
         {
             return HttpServerSettingsAction.Start;
-        }
-
-        if (!normalized.HttpServerEnabled)
-        {
-            return HttpServerSettingsAction.Stop;
         }
 
         return activePort == normalized.HttpServerPort

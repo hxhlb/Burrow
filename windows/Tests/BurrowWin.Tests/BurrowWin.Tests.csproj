@@ -55,6 +55,7 @@
     <Compile Include="..\..\Services\IMoleEngineService.cs" Link="Production\Services\IMoleEngineService.cs" />
     <Compile Include="..\..\Services\IOperationHistoryService.cs" Link="Production\Services\IOperationHistoryService.cs" />
     <Compile Include="..\..\Services\IPurgeArtifactService.cs" Link="Production\Services\IPurgeArtifactService.cs" />
+    <Compile Include="..\..\Services\ISafeDeletionService.cs" Link="Production\Services\ISafeDeletionService.cs" />
     <Compile Include="..\..\Services\IStartupDiagnosticsService.cs" Link="Production\Services\IStartupDiagnosticsService.cs" />
     <Compile Include="..\..\Services\ISystemTelemetrySamplerService.cs" Link="Production\Services\ISystemTelemetrySamplerService.cs" />
     <Compile Include="..\..\Services\ISystemTelemetryService.cs" Link="Production\Services\ISystemTelemetryService.cs" />
@@ -68,6 +69,7 @@
     <Compile Include="..\..\Services\MoleEngineService.cs" Link="Production\Services\MoleEngineService.cs" />
     <Compile Include="..\..\Services\ProcessUsageAggregator.cs" Link="Production\Services\ProcessUsageAggregator.cs" />
     <Compile Include="..\..\Services\PurgeArtifactService.cs" Link="Production\Services\PurgeArtifactService.cs" />
+    <Compile Include="..\..\Services\RecycleBinDeletionService.cs" Link="Production\Services\RecycleBinDeletionService.cs" />
     <Compile Include="..\..\Services\SystemMoleEngineProbe.cs" Link="Production\Services\SystemMoleEngineProbe.cs" />
     <Compile Include="..\..\Services\SystemTelemetrySamplerService.cs" Link="Production\Services\SystemTelemetrySamplerService.cs" />
     <Compile Include="..\..\Services\SystemTelemetryFormatter.cs" Link="Production\Services\SystemTelemetryFormatter.cs" />

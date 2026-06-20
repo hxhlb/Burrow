@@ -18,6 +18,7 @@ $script:MoleGitHubHeaders = @{
     "User-Agent" = "Mole-Windows"
     "Accept"     = "application/vnd.github+json"
 }
+$script:TuiBinarySha256 = @{}
 
 function Get-MoleVersionFromScriptFile {
     param([string]$WindowsDir)
@@ -84,6 +85,10 @@ function Restore-PrebuiltTuiBinary {
         [string]$Version
     )
 
+    if ($env:MOLE_ALLOW_PREBUILT_TUI_DOWNLOAD -ne "1") {
+        return $false
+    }
+
     $releaseInfo = Get-WindowsPrereleaseReleaseInfo -Version $Version
     if (-not $releaseInfo) {
         return $false
@@ -95,18 +100,42 @@ function Restore-PrebuiltTuiBinary {
         return $false
     }
 
+    $hashKey = "$Version/$assetName"
+    $expectedHash = $script:TuiBinarySha256[$hashKey]
+    if (-not $expectedHash) {
+        Write-Host "Skipping prebuilt $Name tool: no pinned SHA-256 for $hashKey." -ForegroundColor Yellow
+        return $false
+    }
+
     $binDir = Split-Path -Parent $DestinationPath
     if (-not (Test-Path $binDir)) {
         New-Item -ItemType Directory -Path $binDir -Force | Out-Null
     }
 
     Write-Host "Downloading prebuilt $Name tool..." -ForegroundColor Cyan
+    $downloadPath = "$DestinationPath.download"
 
     try {
-        Invoke-WebRequest -Uri $asset.browser_download_url -Headers $script:MoleGitHubHeaders -OutFile $DestinationPath -UseBasicParsing
+        if (Test-Path $downloadPath) {
+            Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
+        }
+
+        Invoke-WebRequest -Uri $asset.browser_download_url -Headers $script:MoleGitHubHeaders -OutFile $downloadPath -UseBasicParsing
+        $actualHash = (Get-FileHash -Path $downloadPath -Algorithm SHA256).Hash
+        if ($actualHash -ne $expectedHash) {
+            Write-Host "Rejected prebuilt $Name tool: SHA-256 mismatch." -ForegroundColor Red
+            Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
+            return $false
+        }
+
+        Move-Item -Path $downloadPath -Destination $DestinationPath -Force
         return (Test-Path $DestinationPath)
     }
     catch {
+        if (Test-Path $downloadPath) {
+            Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
+        }
+
         if (Test-Path $DestinationPath) {
             Remove-Item $DestinationPath -Force -ErrorAction SilentlyContinue
         }

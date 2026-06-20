@@ -79,6 +79,9 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     private bool mcpDestructiveActionsEnabled;
 
+    [ObservableProperty]
+    private bool telemetryEnabled;
+
     [RelayCommand]
     public void Refresh()
     {
@@ -104,14 +107,15 @@ public partial class SettingsViewModel : ViewModelBase
             HttpServerEnabled = HttpServerEnabled,
             HttpServerPort = ParseInt(HttpServerPort, current.HttpServerPort),
             TrayIconEnabled = TrayIconEnabled,
-            McpDestructiveActionsEnabled = McpDestructiveActionsEnabled
+            McpDestructiveActionsEnabled = McpDestructiveActionsEnabled,
+            TelemetryEnabled = TelemetryEnabled
         });
 
         var saved = await _settingsService.SaveAsync(settings).ConfigureAwait(false);
         RunOnUiThread(() =>
         {
             ApplySettings(saved);
-            SettingsStatus = "Settings saved. Sampling, tray, HTTP, and MCP gates apply immediately.";
+            SettingsStatus = "Settings saved. Sampling, tray, HTTP, MCP, and telemetry gates apply immediately.";
         });
     }
 
@@ -139,6 +143,7 @@ public partial class SettingsViewModel : ViewModelBase
         HttpServerPort = settings.HttpServerPort.ToString();
         TrayIconEnabled = settings.TrayIconEnabled;
         McpDestructiveActionsEnabled = settings.McpDestructiveActionsEnabled;
+        TelemetryEnabled = settings.TelemetryEnabled;
         McpEndpoint = settings.HttpServerEnabled
             ? $"http://127.0.0.1:{settings.HttpServerPort}"
             : "Disabled";

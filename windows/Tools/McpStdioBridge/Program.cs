@@ -63,11 +63,6 @@ internal static class Program
         try
         {
             var root = JsonNode.Parse(File.ReadAllText(path))?.AsObject();
-            if (root?["HttpServerEnabled"]?.GetValue<bool>() == false)
-            {
-                return null;
-            }
-
             var port = root?["HttpServerPort"]?.GetValue<int>() ?? 9277;
             port = Math.Clamp(port, 1024, 65535);
             return $"http://127.0.0.1:{port}/mcp";

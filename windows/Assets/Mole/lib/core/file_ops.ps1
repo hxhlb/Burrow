@@ -64,6 +64,11 @@ function Test-SafePath {
         Write-Debug "Whitelisted path rejected: $fullPath"
         return $false
     }
+
+    if (-not (Test-AllowedCleanupRoot -Path $fullPath)) {
+        Write-Debug "Path outside allowed cleanup roots rejected: $fullPath"
+        return $false
+    }
     
     return $true
 }
@@ -112,6 +117,44 @@ function Get-PathSizeKB {
 # ============================================================================
 # Safe Removal Functions
 # ============================================================================
+
+function Move-ToRecycleBin {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        return $true
+    }
+
+    try {
+        Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop
+
+        if (Test-Path $Path -PathType Container) {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(
+                $Path,
+                [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
+                [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin,
+                [Microsoft.VisualBasic.FileIO.UICancelOption]::ThrowException
+            )
+        }
+        else {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(
+                $Path,
+                [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
+                [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin,
+                [Microsoft.VisualBasic.FileIO.UICancelOption]::ThrowException
+            )
+        }
+
+        return $true
+    }
+    catch {
+        Write-Debug "Failed to move to Recycle Bin: $Path - $_"
+        return $false
+    }
+}
 
 function Remove-SafeItem {
     <#
@@ -162,13 +205,8 @@ function Remove-SafeItem {
     
     # Perform removal
     try {
-        $isDirectory = Test-Path $Path -PathType Container
-        
-        if ($isDirectory) {
-            Remove-Item -Path $Path -Recurse -Force -ErrorAction Stop
-        }
-        else {
-            Remove-Item -Path $Path -Force -ErrorAction Stop
+        if (-not (Move-ToRecycleBin -Path $Path)) {
+            return $false
         }
         
         # Update statistics
@@ -223,13 +261,11 @@ function Remove-SafeItems {
         }
         
         try {
-            $isDirectory = Test-Path $path -PathType Container
-            if ($isDirectory) {
-                Remove-Item -Path $path -Recurse -Force -ErrorAction Stop
+            if (-not (Move-ToRecycleBin -Path $path)) {
+                $failedCount++
+                continue
             }
-            else {
-                Remove-Item -Path $path -Force -ErrorAction Stop
-            }
+
             $totalSize += $size
             $removedCount++
         }
@@ -332,8 +368,9 @@ function Remove-EmptyDirectories {
             if (Test-SafePath -Path $dir.FullName) {
                 if (-not $script:MoleDryRunMode) {
                     try {
-                        Remove-Item -Path $dir.FullName -Force -ErrorAction Stop
-                        $removedCount++
+                        if (Move-ToRecycleBin -Path $dir.FullName) {
+                            $removedCount++
+                        }
                     }
                     catch {
                         Write-Debug "Could not remove empty dir: $($dir.FullName)"

@@ -213,6 +213,7 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="220" />
@@ -255,12 +256,21 @@
                             Style="{StaticResource SettingsToggleSwitchStyle}" />
                     </StackPanel>
 
-                    <TextBlock
+                    <StackPanel
                         Grid.Row="2"
+                        Spacing="8">
+                        <TextBlock Style="{StaticResource SettingsFieldLabelStyle}" Text="Share crash reports &amp; analytics" />
+                        <ToggleSwitch
+                            IsOn="{Binding TelemetryEnabled, Mode=TwoWay}"
+                            Style="{StaticResource SettingsToggleSwitchStyle}" />
+                    </StackPanel>
+
+                    <TextBlock
+                        Grid.Row="3"
                         Grid.ColumnSpan="3"
                         FontFamily="{StaticResource BurrowMonoFont}"
                         Foreground="{StaticResource BurrowDimBrush}"
-                        Text="Sampling, tray visibility, HTTP enable and port, and MCP destructive gates apply immediately."
+                        Text="Sampling, tray visibility, HTTP enable and port, MCP destructive, and telemetry gates apply immediately. Telemetry is anonymous, opt-out, and only sends from signed release builds."
                         TextWrapping="Wrap" />
                 </Grid>
             </Border>

@@ -1,4 +1,5 @@
 using BurrowWin.Services;
+using System.Globalization;
 using Xunit;
 
 namespace BurrowWin.Tests;
@@ -50,5 +51,27 @@ public sealed class CleanPreviewParserTests
         var item = Assert.Single(items);
         Assert.Equal("Valid", item.Category);
         Assert.Equal(43_008, item.SizeBytes);
+    }
+
+    [Fact]
+    public void Parse_UsesInvariantCultureForDecimalSizes()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            const string preview = """
+                === Browser Caches ===
+                C:\Users\me\AppData\Local\Cache  # 1.5GB, 12 items
+                """;
+
+            var item = Assert.Single(CleanPreviewParser.Parse(preview));
+
+            Assert.Equal(1_610_612_736, item.SizeBytes);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
     }
 }

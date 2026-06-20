@@ -41,14 +41,17 @@ public sealed class InstallerCleanupServiceTests : IDisposable
     public async Task RemoveAsync_RemovesPreviewedInstallerFile()
     {
         var file = CreateFile("driver.iso", 1024, DateTime.UtcNow.AddDays(-90));
-        var service = new InstallerCleanupService(_root, daysOld: 30);
+        var deletionService = new RecordingSafeDeletionService();
+        var service = new InstallerCleanupService(_root, 30, deletionService);
         var candidate = (await service.PreviewAsync()).Single();
 
         var results = await service.RemoveAsync([candidate]);
 
         var result = Assert.Single(results);
         Assert.True(result.Succeeded);
-        Assert.False(File.Exists(file));
+        Assert.True(File.Exists(file));
+        Assert.Single(deletionService.DeletedPaths);
+        Assert.Equal(Path.GetFullPath(file), deletionService.DeletedPaths[0]);
     }
 
     [Fact]
@@ -59,7 +62,8 @@ public sealed class InstallerCleanupServiceTests : IDisposable
 
         try
         {
-            var service = new InstallerCleanupService(_root, daysOld: 30);
+            var deletionService = new RecordingSafeDeletionService();
+            var service = new InstallerCleanupService(_root, 30, deletionService);
             var candidate = new Models.InstallerCleanupCandidate(
                 "outside.msi",
                 outside,
@@ -72,6 +76,7 @@ public sealed class InstallerCleanupServiceTests : IDisposable
             var result = Assert.Single(results);
             Assert.False(result.Succeeded);
             Assert.True(File.Exists(outside));
+            Assert.Empty(deletionService.DeletedPaths);
         }
         finally
         {

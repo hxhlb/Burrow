@@ -35,7 +35,7 @@ public sealed class HttpServerSettingsPlannerTests
     }
 
     [Fact]
-    public void Plan_ReturnsStop_WhenActiveSettingsDisableHttp()
+    public void Plan_KeepsListener_WhenSettingsDisableHttpRest()
     {
         var settings = new BurrowSettings
         {
@@ -45,7 +45,7 @@ public sealed class HttpServerSettingsPlannerTests
 
         var action = HttpServerSettingsPlanner.Plan(true, 9277, settings);
 
-        Assert.Equal(HttpServerSettingsAction.Stop, action);
+        Assert.Equal(HttpServerSettingsAction.None, action);
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public sealed class HttpServerSettingsPlannerTests
     }
 
     [Fact]
-    public void Plan_ReturnsNone_WhenInactiveSettingsKeepHttpDisabled()
+    public void Plan_ReturnsStart_WhenInactiveSettingsDisableHttpRest()
     {
         var settings = new BurrowSettings
         {
@@ -73,6 +73,6 @@ public sealed class HttpServerSettingsPlannerTests
 
         var action = HttpServerSettingsPlanner.Plan(false, 9277, settings);
 
-        Assert.Equal(HttpServerSettingsAction.None, action);
+        Assert.Equal(HttpServerSettingsAction.Start, action);
     }
 }

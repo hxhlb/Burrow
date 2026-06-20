@@ -209,7 +209,13 @@ public sealed class LocalMcpServerService : BackgroundService
         }
 
         var path = context.Request.Url?.AbsolutePath.TrimEnd('/').ToLowerInvariant() ?? string.Empty;
-        var response = path switch
+        var isMcpRoute = path == "/mcp" && context.Request.HttpMethod == "POST";
+        var response = !isMcpRoute && !_settingsService.Current.HttpServerEnabled
+            ? new JsonObject
+            {
+                ["error"] = "HTTP REST endpoints are disabled in BurrowWin Settings. Local stdio MCP remains available through /mcp."
+            }
+            : path switch
         {
             "" or "/health" => BuildHealth(),
             "/info" => await BuildInfoAsync(cancellationToken),
@@ -284,29 +290,61 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private async Task<JsonObject> CallToolAsync(HttpListenerRequest request, CancellationToken cancellationToken)
     {
-        using var reader = new StreamReader(request.InputStream, request.ContentEncoding);
-        var body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        var node = string.IsNullOrWhiteSpace(body) ? null : JsonNode.Parse(body);
-        var name = node?["name"]?.GetValue<string>() ?? string.Empty;
-        var arguments = node?["arguments"]?.AsObject() ?? new JsonObject();
         var startedAt = Stopwatch.GetTimestamp();
+        var name = string.Empty;
+        var arguments = new JsonObject();
 
-        var response = await ExecuteToolByNameAsync(name, arguments, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            using var reader = new StreamReader(request.InputStream, request.ContentEncoding);
+            var body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            var node = string.IsNullOrWhiteSpace(body) ? new JsonObject() : JsonNode.Parse(body)?.AsObject();
+            if (node is null)
+            {
+                return ToolError("Request body must be a JSON object.");
+            }
 
-        await RecordToolHistoryAsync(name, arguments, response, startedAt).ConfigureAwait(false);
-        return response;
+            if (!TryReadOptionalString(node, "name", string.Empty, out name, out var nameError))
+            {
+                return ToolError(nameError);
+            }
+
+            if (!TryReadOptionalObject(node, "arguments", out arguments, out var argumentsError))
+            {
+                return ToolError(argumentsError);
+            }
+
+            var response = await ExecuteToolByNameAsync(name, arguments, cancellationToken).ConfigureAwait(false);
+            await RecordToolHistoryAsync(name, arguments, response, startedAt).ConfigureAwait(false);
+            return response;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var response = ToolError(ex.Message);
+            await RecordToolHistoryAsync(name, arguments, response, startedAt).ConfigureAwait(false);
+            return response;
+        }
     }
 
     private async Task<JsonObject> HandleMcpJsonRpcAsync(HttpListenerRequest request, CancellationToken cancellationToken)
     {
-        using var reader = new StreamReader(request.InputStream, request.ContentEncoding);
-        var body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        var node = string.IsNullOrWhiteSpace(body) ? null : JsonNode.Parse(body)?.AsObject();
-        var id = node?["id"]?.DeepClone();
-        var method = node?["method"]?.GetValue<string>() ?? string.Empty;
-
+        JsonNode? id = null;
         try
         {
+            using var reader = new StreamReader(request.InputStream, request.ContentEncoding);
+            var body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            var node = string.IsNullOrWhiteSpace(body) ? new JsonObject() : JsonNode.Parse(body)?.AsObject();
+            if (node is null)
+            {
+                throw new InvalidOperationException("JSON-RPC request must be a JSON object.");
+            }
+
+            id = node["id"]?.DeepClone();
+            if (!TryReadOptionalString(node, "method", string.Empty, out var method, out var methodError))
+            {
+                throw new InvalidOperationException(methodError);
+            }
+
             var result = method switch
             {
                 "initialize" => BuildMcpInitializeResult(),
@@ -322,7 +360,7 @@ public sealed class LocalMcpServerService : BackgroundService
                 ["result"] = result
             };
         }
-        catch (Exception ex) when (ex is InvalidOperationException or JsonException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new JsonObject
             {
@@ -330,7 +368,7 @@ public sealed class LocalMcpServerService : BackgroundService
                 ["id"] = id,
                 ["error"] = new JsonObject
                 {
-                    ["code"] = -32601,
+                    ["code"] = ex is InvalidOperationException or JsonException ? -32602 : -32603,
                     ["message"] = ex.Message
                 }
             };
@@ -339,12 +377,25 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private async Task<JsonObject> HandleMcpToolCallAsync(JsonObject parameters, CancellationToken cancellationToken)
     {
-        var name = parameters["name"]?.GetValue<string>() ?? string.Empty;
-        var arguments = parameters["arguments"]?.AsObject() ?? new JsonObject();
+        if (!TryReadOptionalString(parameters, "name", string.Empty, out var name, out var nameError))
+        {
+            return BuildMcpToolResult(ToolError(nameError));
+        }
+
+        if (!TryReadOptionalObject(parameters, "arguments", out var arguments, out var argumentsError))
+        {
+            return BuildMcpToolResult(ToolError(argumentsError));
+        }
+
         var startedAt = Stopwatch.GetTimestamp();
         var response = await ExecuteToolByNameAsync(name, arguments, cancellationToken).ConfigureAwait(false);
         await RecordToolHistoryAsync(name, arguments, response, startedAt).ConfigureAwait(false);
 
+        return BuildMcpToolResult(response);
+    }
+
+    private static JsonObject BuildMcpToolResult(JsonObject response)
+    {
         return new JsonObject
         {
             ["content"] = new JsonArray
@@ -382,7 +433,11 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private async Task<JsonObject> RunActionToolAsync(string command, JsonObject arguments, CancellationToken cancellationToken)
     {
-        var confirm = arguments["confirm"]?.GetValue<bool>() == true;
+        if (!TryReadOptionalBoolean(arguments, "confirm", false, out var confirm, out var confirmError))
+        {
+            return ToolError(confirmError);
+        }
+
         if (confirm && !_settingsService.Current.McpDestructiveActionsEnabled)
         {
             return new JsonObject
@@ -429,7 +484,12 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private async Task<JsonObject> CaptureHistoryAsync(JsonObject arguments, CancellationToken cancellationToken)
     {
-        var limit = Math.Clamp(arguments["limit"]?.GetValue<int>() ?? 24, 1, 500);
+        if (!TryReadOptionalInt(arguments, "limit", 24, out var requestedLimit, out var limitError))
+        {
+            return ToolError(limitError);
+        }
+
+        var limit = Math.Clamp(requestedLimit, 1, 500);
         var snapshots = await _systemTelemetryHistoryService.ReadRecentAsync(limit, cancellationToken).ConfigureAwait(false);
         return new JsonObject
         {
@@ -442,10 +502,25 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private async Task<JsonObject> CaptureTopProcessesAsync(JsonObject arguments, CancellationToken cancellationToken)
     {
-        var historyLimit = Math.Clamp(arguments["history_limit"]?.GetValue<int>() ?? 120, 1, 1000);
-        var limit = Math.Clamp(arguments["limit"]?.GetValue<int>() ?? 10, 1, 100);
+        if (!TryReadOptionalInt(arguments, "history_limit", 120, out var requestedHistoryLimit, out var historyLimitError))
+        {
+            return ToolError(historyLimitError);
+        }
+
+        if (!TryReadOptionalInt(arguments, "limit", 10, out var requestedLimit, out var limitError))
+        {
+            return ToolError(limitError);
+        }
+
+        if (!TryReadOptionalString(arguments, "metric", ProcessUsageAggregator.PeakCpuMetric, out var requestedMetric, out var metricError))
+        {
+            return ToolError(metricError);
+        }
+
+        var historyLimit = Math.Clamp(requestedHistoryLimit, 1, 1000);
+        var limit = Math.Clamp(requestedLimit, 1, 100);
         var metric = ProcessUsageAggregator.NormalizeMetric(
-            arguments["metric"]?.GetValue<string>() ?? ProcessUsageAggregator.PeakCpuMetric);
+            requestedMetric);
         var snapshots = await _systemTelemetryHistoryService.ReadRecentAsync(historyLimit, cancellationToken).ConfigureAwait(false);
         var processes = ProcessUsageAggregator.Rank(snapshots, metric, limit);
 
@@ -461,10 +536,24 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private async Task<JsonObject> CaptureProcessUsageAsync(JsonObject arguments, CancellationToken cancellationToken)
     {
-        var requestedMetric = arguments["metric"]?.GetValue<string>() ?? "peak_mem";
+        if (!TryReadOptionalString(arguments, "metric", "peak_mem", out var requestedMetric, out var metricError))
+        {
+            return ToolError(metricError);
+        }
+
+        if (!TryReadOptionalInt(arguments, "history_limit", 120, out var requestedHistoryLimit, out var historyLimitError))
+        {
+            return ToolError(historyLimitError);
+        }
+
+        if (!TryReadOptionalInt(arguments, "limit", 10, out var requestedLimit, out var limitError))
+        {
+            return ToolError(limitError);
+        }
+
         var metric = ProcessUsageAggregator.NormalizeMetric(requestedMetric);
-        var historyLimit = Math.Clamp(arguments["history_limit"]?.GetValue<int>() ?? 120, 1, 1000);
-        var limit = Math.Clamp(arguments["limit"]?.GetValue<int>() ?? 10, 1, 100);
+        var historyLimit = Math.Clamp(requestedHistoryLimit, 1, 1000);
+        var limit = Math.Clamp(requestedLimit, 1, 100);
         var snapshots = await _systemTelemetryHistoryService.ReadRecentAsync(historyLimit, cancellationToken).ConfigureAwait(false);
         var processes = ProcessUsageAggregator.Rank(snapshots, metric, limit);
 
@@ -532,10 +621,25 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private async Task<JsonObject> AnalyzeAsync(JsonObject arguments, CancellationToken cancellationToken)
     {
-        var path = arguments["path"]?.GetValue<string>()
-            ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var maxDepth = arguments["max_depth"]?.GetValue<int>() ?? 2;
-        var maxChildren = arguments["max_children"]?.GetValue<int>() ?? 12;
+        if (!TryReadOptionalString(
+                arguments,
+                "path",
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                out var path,
+                out var pathError))
+        {
+            return ToolError(pathError);
+        }
+
+        if (!TryReadOptionalInt(arguments, "max_depth", 2, out var maxDepth, out var maxDepthError))
+        {
+            return ToolError(maxDepthError);
+        }
+
+        if (!TryReadOptionalInt(arguments, "max_children", 12, out var maxChildren, out var maxChildrenError))
+        {
+            return ToolError(maxChildrenError);
+        }
 
         try
         {
@@ -575,6 +679,116 @@ public sealed class LocalMcpServerService : BackgroundService
     {
         var value = request.QueryString[name];
         return int.TryParse(value, out var parsed) ? parsed : fallback;
+    }
+
+    private static bool TryReadOptionalBoolean(
+        JsonObject arguments,
+        string name,
+        bool fallback,
+        out bool value,
+        out string error)
+    {
+        value = fallback;
+        error = string.Empty;
+        if (!arguments.TryGetPropertyValue(name, out var node) || node is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            value = node.GetValue<bool>();
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            error = $"Argument `{name}` must be a JSON boolean.";
+            return false;
+        }
+    }
+
+    private static bool TryReadOptionalInt(
+        JsonObject arguments,
+        string name,
+        int fallback,
+        out int value,
+        out string error)
+    {
+        value = fallback;
+        error = string.Empty;
+        if (!arguments.TryGetPropertyValue(name, out var node) || node is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            value = node.GetValue<int>();
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            error = $"Argument `{name}` must be a JSON integer.";
+            return false;
+        }
+    }
+
+    private static bool TryReadOptionalString(
+        JsonObject arguments,
+        string name,
+        string fallback,
+        out string value,
+        out string error)
+    {
+        value = fallback;
+        error = string.Empty;
+        if (!arguments.TryGetPropertyValue(name, out var node) || node is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            value = node.GetValue<string>() ?? fallback;
+            return true;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            error = $"Argument `{name}` must be a JSON string.";
+            return false;
+        }
+    }
+
+    private static bool TryReadOptionalObject(
+        JsonObject arguments,
+        string name,
+        out JsonObject value,
+        out string error)
+    {
+        value = new JsonObject();
+        error = string.Empty;
+        if (!arguments.TryGetPropertyValue(name, out var node) || node is null)
+        {
+            return true;
+        }
+
+        if (node is JsonObject objectValue)
+        {
+            value = objectValue;
+            return true;
+        }
+
+        error = $"Argument `{name}` must be a JSON object.";
+        return false;
+    }
+
+    private static JsonObject ToolError(string message)
+    {
+        return new JsonObject
+        {
+            ["error"] = string.IsNullOrWhiteSpace(message) ? "Tool failed." : message,
+            ["succeeded"] = false
+        };
     }
 
     private static JsonObject UnsupportedInteractiveTool(string command)
@@ -723,7 +937,11 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private async Task<JsonObject> UninstallAsync(JsonObject arguments, CancellationToken cancellationToken)
     {
-        var action = arguments["action"]?.GetValue<string>() ?? "list";
+        if (!TryReadOptionalString(arguments, "action", "list", out var action, out var actionError))
+        {
+            return ToolError(actionError);
+        }
+
         var apps = await _installedApplicationService.GetInstalledApplicationsAsync(cancellationToken).ConfigureAwait(false);
 
         return action switch
@@ -737,8 +955,17 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private static JsonObject BuildUninstallList(IReadOnlyList<InstalledApplication> apps, JsonObject arguments)
     {
-        var search = arguments["search"]?.GetValue<string>() ?? string.Empty;
-        var limit = Math.Clamp(arguments["limit"]?.GetValue<int>() ?? 50, 1, 200);
+        if (!TryReadOptionalString(arguments, "search", string.Empty, out var search, out var searchError))
+        {
+            return ToolError(searchError);
+        }
+
+        if (!TryReadOptionalInt(arguments, "limit", 50, out var requestedLimit, out var limitError))
+        {
+            return ToolError(limitError);
+        }
+
+        var limit = Math.Clamp(requestedLimit, 1, 200);
         var filtered = string.IsNullOrWhiteSpace(search)
             ? apps.ToArray()
             : apps
@@ -789,7 +1016,11 @@ public sealed class LocalMcpServerService : BackgroundService
         JsonObject arguments,
         CancellationToken cancellationToken)
     {
-        var confirm = arguments["confirm"]?.GetValue<bool>() == true;
+        if (!TryReadOptionalBoolean(arguments, "confirm", false, out var confirm, out var confirmError))
+        {
+            return ToolError(confirmError);
+        }
+
         if (!confirm)
         {
             return new JsonObject
@@ -830,7 +1061,11 @@ public sealed class LocalMcpServerService : BackgroundService
 
     private static InstalledApplication? FindApplication(IReadOnlyList<InstalledApplication> apps, JsonObject arguments)
     {
-        var appId = arguments["app_id"]?.GetValue<string>();
+        if (!TryReadOptionalString(arguments, "app_id", string.Empty, out var appId, out _))
+        {
+            return null;
+        }
+
         return string.IsNullOrWhiteSpace(appId)
             ? null
             : apps.FirstOrDefault(app => string.Equals(app.Id, appId, StringComparison.OrdinalIgnoreCase));

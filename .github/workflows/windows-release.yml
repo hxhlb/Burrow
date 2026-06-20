@@ -1,0 +1,77 @@
+name: windows-release
+
+# Release-grade build of the Windows app (windows/) that BAKES the telemetry
+# keys into the assembly from repo secrets, then publishes the unpackaged app
+# as an artifact. Manual trigger (workflow_dispatch) so it never collides with
+# the macOS tag-triggered release.yml; the full installer/winget packaging
+# still lives in windows/scripts/build-release.ps1 (run locally), which picks
+# up the same BURROWWIN_* env vars if they're set.
+#
+# Secrets consumed (set in repo Settings -> Secrets and variables -> Actions):
+#   BURROWWIN_SENTRY_DSN        - the separate `burrow-windows` Sentry project DSN
+#   BURROWWIN_POSTHOG_API_KEY   - the (shared) PostHog project API key
+#   BURROWWIN_POSTHOG_HOST      - optional; defaults to https://us.i.posthog.com
+# Any unset secret -> that SDK stays inert and the build still succeeds.
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: "Build configuration"
+        required: false
+        default: "Release"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: windows
+    env:
+      # MSBuild exposes these as $(BURROWWIN_*) properties, which the csproj
+      # bakes into AssemblyMetadata; TelemetryConfig reads them at runtime.
+      BURROWWIN_SENTRY_DSN: ${{ secrets.BURROWWIN_SENTRY_DSN }}
+      BURROWWIN_POSTHOG_API_KEY: ${{ secrets.BURROWWIN_POSTHOG_API_KEY }}
+      BURROWWIN_POSTHOG_HOST: ${{ secrets.BURROWWIN_POSTHOG_HOST }}
+    steps:
+      # Pinned to a SHA (supply-chain hygiene), matching windows-ci.yml.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # Surface (without leaking) whether the keys will actually be baked, so a
+      # release that silently shipped inert telemetry is easy to spot. Reads the
+      # env (set from secrets) rather than interpolating the secret into script.
+      - name: Telemetry key presence
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrEmpty($env:BURROWWIN_SENTRY_DSN)) {
+            Write-Host "::warning::BURROWWIN_SENTRY_DSN is empty - Sentry crash reporting will be inert in this build."
+          } else { Write-Host "Sentry DSN present - crash reporting will be active." }
+          if ([string]::IsNullOrEmpty($env:BURROWWIN_POSTHOG_API_KEY)) {
+            Write-Host "::warning::BURROWWIN_POSTHOG_API_KEY is empty - PostHog analytics will be inert in this build."
+          } else { Write-Host "PostHog key present - analytics will be active." }
+
+      - name: Restore
+        run: dotnet restore .\BurrowWin.sln
+
+      - name: Publish (telemetry keys baked from secrets)
+        run: dotnet publish .\BurrowWin.csproj -c ${{ github.event.inputs.configuration }} -p:Platform=x64 -r win-x64 --self-contained false -o .\artifacts\release-publish -v:minimal
+
+      - name: Upload published app
+        uses: actions/upload-artifact@v4
+        with:
+          name: burrowwin-win-x64-publish
+          path: windows/artifacts/release-publish
+          if-no-files-found: error

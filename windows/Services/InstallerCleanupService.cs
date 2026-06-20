@@ -17,16 +17,31 @@ public sealed class InstallerCleanupService : IInstallerCleanupService
         "*.iso"
     ];
 
+    private readonly ISafeDeletionService _safeDeletionService;
     private readonly string _downloadsPath;
     private readonly int _daysOld;
 
     public InstallerCleanupService()
-        : this(ResolveDefaultDownloadsPath(), DefaultDaysOld)
+        : this(ResolveDefaultDownloadsPath(), DefaultDaysOld, new RecycleBinDeletionService())
+    {
+    }
+
+    public InstallerCleanupService(ISafeDeletionService safeDeletionService)
+        : this(ResolveDefaultDownloadsPath(), DefaultDaysOld, safeDeletionService)
     {
     }
 
     public InstallerCleanupService(string downloadsPath, int daysOld = DefaultDaysOld)
+        : this(downloadsPath, daysOld, new RecycleBinDeletionService())
     {
+    }
+
+    public InstallerCleanupService(
+        string downloadsPath,
+        int daysOld,
+        ISafeDeletionService safeDeletionService)
+    {
+        _safeDeletionService = safeDeletionService;
         _downloadsPath = Path.GetFullPath(downloadsPath);
         _daysOld = Math.Max(1, daysOld);
     }
@@ -142,12 +157,7 @@ public sealed class InstallerCleanupService : IInstallerCleanupService
 
         try
         {
-            if (File.Exists(candidatePath))
-            {
-                File.Delete(candidatePath);
-            }
-
-            return new LeftoverRemovalResult(candidate.Path, true, "Removed", candidate.SizeBytes);
+            return _safeDeletionService.DeleteFileOrDirectory(candidatePath, candidate.SizeBytes);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

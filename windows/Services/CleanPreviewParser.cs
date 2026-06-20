@@ -1,4 +1,5 @@
 using BurrowWin.Models;
+using System.Globalization;
 
 namespace BurrowWin.Services;
 
@@ -81,7 +82,9 @@ public static class CleanPreviewParser
             }
 
             var number = normalized[..^suffix.Length].Trim();
-            return double.TryParse(number, out var value) ? (long)(value * multiplier) : 0;
+            return double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                ? (long)(value * multiplier)
+                : 0;
         }
 
         return 0;

@@ -31,6 +31,7 @@ public partial class App : Application
                 services.AddSingleton<IMoleEngineProbe, SystemMoleEngineProbe>();
                 services.AddSingleton<IOperationHistoryService, JsonOperationHistoryService>();
                 services.AddSingleton<IMoleEngineService, MoleEngineService>();
+                services.AddSingleton<ISafeDeletionService, RecycleBinDeletionService>();
                 services.AddSingleton<ISystemTelemetryService, WindowsSystemTelemetryService>();
                 services.AddSingleton<ISystemTelemetryHistoryService, JsonSystemTelemetryHistoryService>();
                 services.AddSingleton<SystemTelemetrySamplerService>();
@@ -71,6 +72,11 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         var diagnostics = _host.Services.GetRequiredService<IStartupDiagnosticsService>();
+        var settingsService = _host.Services.GetRequiredService<IApplicationSettingsService>();
+        // Bring telemetry up before wiring exception handlers so a crash during
+        // the rest of startup is still captured. Inert unless the user has
+        // opted in AND a DSN/key is configured (release builds only).
+        AppTelemetry.Initialize(settingsService.Current.TelemetryEnabled);
         RegisterExceptionLogging(diagnostics);
         diagnostics.Record("launch", "Launch requested.");
 
@@ -89,11 +95,13 @@ public partial class App : Application
             throw;
         }
 
-        var settingsService = _host.Services.GetRequiredService<IApplicationSettingsService>();
         var trayIconService = _host.Services.GetRequiredService<ITrayIconService>();
 
         settingsService.SettingsChanged += (_, settings) =>
         {
+            // Apply the telemetry opt-out the moment it's saved (no window needed).
+            AppTelemetry.SetEnabled(settings.TelemetryEnabled);
+
             var window = _window;
             if (window is null)
             {
@@ -154,12 +162,14 @@ public partial class App : Application
         UnhandledException += (_, eventArgs) =>
         {
             diagnostics.RecordException("xaml_unhandled", eventArgs.Exception);
+            AppTelemetry.CaptureException(eventArgs.Exception, "xaml_unhandled");
         };
         AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
         {
             if (eventArgs.ExceptionObject is Exception exception)
             {
                 diagnostics.RecordException("domain_unhandled", exception);
+                AppTelemetry.CaptureException(exception, "domain_unhandled");
             }
             else
             {
@@ -169,6 +179,7 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
         {
             diagnostics.RecordException("task_unobserved", eventArgs.Exception);
+            AppTelemetry.CaptureException(eventArgs.Exception, "task_unobserved");
             eventArgs.SetObserved();
         };
     }

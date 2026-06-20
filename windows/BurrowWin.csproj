@@ -70,6 +70,26 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
+    <!-- Crash reporting (Windows-only Sentry project; see Services/AppTelemetry.cs).
+         Product analytics (PostHog) is hand-rolled over HTTP, so no extra package. -->
+    <PackageReference Include="Sentry" Version="6.0.0" />
+  </ItemGroup>
+
+  <!--
+    Bake the telemetry keys into the assembly at build time, sourced from the
+    BURROWWIN_* environment variables a release build sets (mirrors how the
+    macOS build injects SENTRY_DSN/POSTHOG_API_KEY into Info.plist).
+    TelemetryConfig reads these via AssemblyMetadata. Unset → empty → telemetry
+    stays inert, and the build still succeeds. MSBuild exposes environment
+    variables as properties, so $(BURROWWIN_*) resolves them with no extra glue.
+  -->
+  <ItemGroup>
+    <AssemblyMetadata Include="BurrowWinSentryDsn" Value="$(BURROWWIN_SENTRY_DSN)" />
+    <AssemblyMetadata Include="BurrowWinPostHogApiKey" Value="$(BURROWWIN_POSTHOG_API_KEY)" />
+    <AssemblyMetadata Include="BurrowWinPostHogHost" Value="$(BURROWWIN_POSTHOG_HOST)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.2.0" />

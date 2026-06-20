@@ -6,10 +6,21 @@ namespace BurrowWin.Services;
 
 public sealed class WindowsInstalledApplicationService : IInstalledApplicationService
 {
+    private static readonly char[] DirectorySeparators = [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar];
+
+    private readonly ISafeDeletionService _safeDeletionService;
     private readonly IOperationHistoryService? _operationHistoryService;
 
     public WindowsInstalledApplicationService(IOperationHistoryService? operationHistoryService = null)
+        : this(new RecycleBinDeletionService(), operationHistoryService)
     {
+    }
+
+    public WindowsInstalledApplicationService(
+        ISafeDeletionService safeDeletionService,
+        IOperationHistoryService? operationHistoryService = null)
+    {
+        _safeDeletionService = safeDeletionService;
         _operationHistoryService = operationHistoryService;
     }
 
@@ -327,29 +338,17 @@ public sealed class WindowsInstalledApplicationService : IInstalledApplicationSe
         return total;
     }
 
-    private static LeftoverRemovalResult RemoveLeftover(LeftoverCandidate leftover)
+    private LeftoverRemovalResult RemoveLeftover(LeftoverCandidate leftover)
     {
         try
         {
             var fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(leftover.Path));
-            if (!IsSafeDeletionTarget(fullPath))
+            if (!IsSafeLeftoverCandidate(leftover))
             {
                 return new LeftoverRemovalResult(leftover.Path, false, "Blocked unsafe deletion target.", leftover.SizeBytes);
             }
 
-            if (Directory.Exists(fullPath))
-            {
-                Directory.Delete(fullPath, recursive: true);
-                return new LeftoverRemovalResult(leftover.Path, true, "Directory removed.", leftover.SizeBytes);
-            }
-
-            if (File.Exists(fullPath))
-            {
-                File.Delete(fullPath);
-                return new LeftoverRemovalResult(leftover.Path, true, "File removed.", leftover.SizeBytes);
-            }
-
-            return new LeftoverRemovalResult(leftover.Path, true, "Path was already absent.", leftover.SizeBytes);
+            return _safeDeletionService.DeleteFileOrDirectory(fullPath, leftover.SizeBytes);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
@@ -424,16 +423,31 @@ public sealed class WindowsInstalledApplicationService : IInstalledApplicationSe
         return !string.IsNullOrWhiteSpace(fileName);
     }
 
-    public static bool IsSafeDeletionTarget(string path)
+    public static bool IsSafeLeftoverCandidate(LeftoverCandidate leftover)
     {
-        if (string.IsNullOrWhiteSpace(path))
+        if (!TryNormalizePath(leftover.Path, out var fullPath) || !IsSafeDeletionTarget(fullPath))
         {
             return false;
         }
 
-        var fullPath = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var root = Path.GetPathRoot(fullPath)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (string.Equals(fullPath, root, StringComparison.OrdinalIgnoreCase))
+        return leftover.Category switch
+        {
+            "Install location" => !IsUnderUserProfile(fullPath),
+            "Local app data" or "Roaming app data" or "Publisher local data" or "Publisher roaming data" =>
+                IsAllowedApplicationDataTarget(fullPath),
+            "Program data" => false,
+            _ => true
+        };
+    }
+
+    public static bool IsSafeDeletionTarget(string path)
+    {
+        if (!TryNormalizePath(path, out var fullPath))
+        {
+            return false;
+        }
+
+        if (IsDriveRoot(fullPath) || IsUncPath(fullPath))
         {
             return false;
         }
@@ -445,16 +459,129 @@ public sealed class WindowsInstalledApplicationService : IInstalledApplicationSe
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
             Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
             Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFilesX86),
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.SystemDirectory,
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)
         };
 
-        return blockedRoots
+        if (blockedRoots.Any(blocked => IsPathAtOrUnderRoot(fullPath, blocked)))
+        {
+            return false;
+        }
+
+        var blockedExactRoots = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
+        };
+
+        return blockedExactRoots
             .Where(blocked => !string.IsNullOrWhiteSpace(blocked))
-            .Select(blocked => Path.GetFullPath(blocked).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            .Select(NormalizeRoot)
             .All(blocked => !string.Equals(fullPath, blocked, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TryNormalizePath(string path, out string fullPath)
+    {
+        fullPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        var expanded = Environment.ExpandEnvironmentVariables(path.Trim());
+        if (string.IsNullOrWhiteSpace(expanded) || expanded.Contains('%', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        try
+        {
+            fullPath = Path.GetFullPath(expanded).TrimEnd(DirectorySeparators);
+            return fullPath.Length > 0;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsAllowedApplicationDataTarget(string fullPath)
+    {
+        var roots = new[]
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
+        };
+
+        foreach (var root in roots.Where(root => !string.IsNullOrWhiteSpace(root)).Select(NormalizeRoot))
+        {
+            if (!IsPathUnderRoot(fullPath, root))
+            {
+                continue;
+            }
+
+            var relative = Path.GetRelativePath(root, fullPath);
+            var firstSegment = relative
+                .Split(DirectorySeparators, StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(firstSegment))
+            {
+                return false;
+            }
+
+            var blockedFirstSegments = new[] { "Microsoft", "Windows", "Packages", "Programs", "Temp" };
+            return !blockedFirstSegments.Contains(firstSegment, StringComparer.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    private static bool IsUnderUserProfile(string fullPath)
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return !string.IsNullOrWhiteSpace(userProfile) && IsPathUnderRoot(fullPath, NormalizeRoot(userProfile));
+    }
+
+    private static bool IsDriveRoot(string fullPath)
+    {
+        if (fullPath.Length == 2 && fullPath[1] == ':')
+        {
+            return true;
+        }
+
+        var root = Path.GetPathRoot(fullPath);
+        return !string.IsNullOrWhiteSpace(root) &&
+               string.Equals(fullPath, NormalizeRoot(root), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUncPath(string fullPath)
+    {
+        return fullPath.StartsWith(@"\\", StringComparison.Ordinal);
+    }
+
+    private static bool IsPathAtOrUnderRoot(string path, string root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return false;
+        }
+
+        var normalizedRoot = NormalizeRoot(root);
+        return string.Equals(path, normalizedRoot, StringComparison.OrdinalIgnoreCase) ||
+               IsPathUnderRoot(path, normalizedRoot);
+    }
+
+    private static bool IsPathUnderRoot(string path, string root)
+    {
+        return path.StartsWith(
+            root.TrimEnd(DirectorySeparators) + Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeRoot(string path)
+    {
+        return Path.GetFullPath(Environment.ExpandEnvironmentVariables(path)).TrimEnd(DirectorySeparators);
     }
 
     private static bool IsBlockedProcessHost(string fileName)

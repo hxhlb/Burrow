@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Media;
@@ -207,7 +208,7 @@ public partial class DashboardViewModel : ViewModelBase
 
     public double HealthScoreValue => Math.Clamp(100 - Math.Round(Math.Max(DiskUsagePercent, Math.Max(MemoryUsagePercent, CpuUsagePercent)) / 2), 0, 100);
 
-    public string HealthScore => HealthScoreValue.ToString("0");
+    public string HealthScore => HealthScoreValue.ToString("0", CultureInfo.InvariantCulture);
 
     public string HealthStatusText => DiskUsagePercent > 90 || MemoryUsagePercent > 90 ? "Watch" : "Good";
 
@@ -306,8 +307,10 @@ public partial class DashboardViewModel : ViewModelBase
             GpuMetricText = string.Equals(snapshot.GpuStatus, "Unavailable", StringComparison.OrdinalIgnoreCase)
                 ? "-"
                 : snapshot.GpuStatus;
-            CapturedAt = snapshot.CapturedAt.ToString("HH:mm:ss");
-            CpuFooter = $"load {snapshot.CpuUsagePercent / 100 * Environment.ProcessorCount:0.00} - {snapshot.TopProcesses.Count} processes";
+            CapturedAt = snapshot.CapturedAt.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+            CpuFooter = string.Create(
+                CultureInfo.InvariantCulture,
+                $"load {snapshot.CpuUsagePercent / 100 * Environment.ProcessorCount:0.00} - {snapshot.TopProcesses.Count} processes");
             CpuCoresBadge = $"{Environment.ProcessorCount} cores";
             DeviceSummary = $"Windows - {SystemTelemetryFormatter.Bytes(snapshot.MemoryTotalBytes)}";
             HealthFooter = BuildUptimeText(snapshot.CapturedAt);
@@ -367,12 +370,12 @@ public partial class DashboardViewModel : ViewModelBase
         }
 
         var percent = Math.Clamp(snapshot.BatteryChargePercent.Value, 0, 100);
-        BatteryMetricText = percent.ToString("0");
+        BatteryMetricText = percent.ToString("0", CultureInfo.InvariantCulture);
         BatteryStateText = snapshot.BatteryStatusText;
         BatteryFooter = BuildBatteryFooter(snapshot);
         BatteryBadge = snapshot.BatteryHealthText;
         BatteryHealthBadge = snapshot.BatteryHealthText;
-        BatteryPercentText = $"{percent:0}%";
+        BatteryPercentText = string.Create(CultureInfo.InvariantCulture, $"{percent:0}%");
     }
 
     private static string BuildBatteryFooter(SystemTelemetrySnapshot snapshot)
@@ -383,7 +386,7 @@ public partial class DashboardViewModel : ViewModelBase
             parts.Add($"{FormatBatteryDuration(snapshot.BatteryEstimatedSecondsRemaining.Value)} left");
         }
 
-        parts.Add($"{Math.Clamp(snapshot.BatteryChargePercent ?? 0, 0, 100):0}% charge");
+        parts.Add(string.Create(CultureInfo.InvariantCulture, $"{Math.Clamp(snapshot.BatteryChargePercent ?? 0, 0, 100):0}% charge"));
         parts.Add(snapshot.BatteryStatusText);
         return string.Join(" - ", parts);
     }
@@ -549,14 +552,14 @@ public partial class DashboardViewModel : ViewModelBase
     private static double ParseGpuPercent(string gpuStatus)
     {
         var numeric = new string(gpuStatus.Where(character => char.IsDigit(character) || character == '.').ToArray());
-        return double.TryParse(numeric, out var value) ? value : 0;
+        return double.TryParse(numeric, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : 0;
     }
 
     private static string BuildUptimeText(DateTimeOffset capturedAt)
     {
         var uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
         var since = capturedAt - uptime;
-        return $"up {(int)uptime.TotalDays}d {uptime.Hours}h - since {since:MMM dd}";
+        return string.Create(CultureInfo.InvariantCulture, $"up {(int)uptime.TotalDays}d {uptime.Hours}h - since {since:MMM dd}");
     }
 
     private static string BuildTelemetryHistorySummary(IReadOnlyList<SystemTelemetrySnapshot> snapshots)
@@ -568,7 +571,9 @@ public partial class DashboardViewModel : ViewModelBase
 
         var averageCpu = snapshots.Average(snapshot => snapshot.CpuUsagePercent);
         var averageMemory = snapshots.Average(snapshot => snapshot.MemoryUsagePercent);
-        return $"{snapshots.Count} recent samples | avg CPU {averageCpu:0.0}% | avg memory {averageMemory:0.0}%";
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{snapshots.Count} recent samples | avg CPU {averageCpu:0.0}% | avg memory {averageMemory:0.0}%");
     }
 
     private static string BuildActivitySummary(IReadOnlyList<OperationHistoryEntry> entries)

@@ -95,3 +95,55 @@ one final `telemetry_opt_in_changed`, flushes, then mutes; Sentry closes).
 The SDKs' local files — the two random ids and any not-yet-sent queue — stay
 on disk so a later re-enable reuses the same anonymous identity; nothing is
 transmitted while opted out. There is no server-side deletion call.
+
+## Windows app
+
+The Windows app (`windows/`, WinUI 3 / .NET 8) reports through the same
+hosts as the table above (`us.i.posthog.com`; Sentry ingest from the release
+DSN), but its projects differ:
+
+- **Crash reporting → its own separate Sentry project** (`burrow-windows`),
+  isolated from the macOS `burrow` project.
+- **Analytics → the *same* PostHog project as macOS.** PostHog's free plan
+  caps an org at one project, so rather than gate this on a paid upgrade the
+  Windows app reuses the macOS project and tags every event with
+  **`platform: "windows"`** (plus `$lib: "burrow-win"`) so the two platforms
+  filter apart cleanly in dashboards. macOS events carry no `platform` key.
+
+Either way nothing here changes the macOS pipeline. Client code:
+[`windows/Services/AppTelemetry.cs`](windows/Services/AppTelemetry.cs) (both
+SDKs) and
+[`windows/Services/TelemetryConfig.cs`](windows/Services/TelemetryConfig.cs).
+
+Same ground rules, enforced the same way:
+
+- **Opt-out, on by default.** One switch — **Settings → Share crash reports &
+  analytics** — gates both (`BurrowSettings.TelemetryEnabled`). Off → PostHog
+  is hard-muted and Sentry is `Close()`d, immediately.
+- **Inert without keys.** DSN/key are **baked into the assembly at build time**
+  (MSBuild `AssemblyMetadata`, see `BurrowWin.csproj`) from the
+  **`BURROWWIN_SENTRY_DSN`**, **`BURROWWIN_POSTHOG_API_KEY`**, and optional
+  **`BURROWWIN_POSTHOG_HOST`** env vars a release build sets — exactly as the
+  macOS build bakes them into Info.plist. A runtime env var is honored only as
+  a dev fallback (shipped builds carry the baked values; end users have none of
+  these set). The CI path is `.github/workflows/windows-release.yml`, which
+  injects them from repo secrets. The Sentry DSN is the separate
+  `burrow-windows` project's; the PostHog key is the **same** one the macOS
+  build uses (shared project). Local/dev builds set none, so telemetry never
+  starts.
+- **Identity is random.** An anonymous GUID persisted at
+  `%LOCALAPPDATA%\BurrowWin\telemetry-id` — never derived from hardware,
+  serial, or account.
+- **No PII.** `Sanitize()` drops the same blocked keys, anything
+  non-primitive, and any string that looks like a `\Users\` path. Events carry
+  `$ip = "0"`. Sentry runs `SendDefaultPii = false`, no traces
+  (`TracesSampleRate = 0`), no auto session tracking, and the machine name is
+  stripped in `BeforeSend`.
+
+PostHog on Windows is delivered by a small hand-rolled HTTPS `POST` to
+`/capture/` (no SDK), so the payload — and these guarantees — stay fully under
+our control. Events wired now: `app_opened` (`cold_start`),
+`telemetry_opt_in_changed` (`enabled`), plus whatever the global exception
+handlers report to Sentry (`xaml_unhandled` / `domain_unhandled` /
+`task_unobserved`). Super properties: `platform: "windows"`, `app_version`,
+`os_version` (e.g. `Windows 10.0.26100.0`), `arch`.

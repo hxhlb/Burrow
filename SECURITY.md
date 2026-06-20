@@ -62,7 +62,13 @@ This is the part people rightly scrutinize in cleaners. Burrow's model:
   [`Sources/Telemetry.swift`](Sources/Telemetry.swift) and
   [`Sources/CrashReporter.swift`](Sources/CrashReporter.swift). Both SDKs are
   **inert in source/dev builds** — keys are injected only at release time, so
-  a build from this repo phones neither home.
+  a build from this repo phones neither home. The **Windows app** does the same
+  thing (opt-out via **Settings → Share crash reports & analytics**) — its own
+  separate Sentry project, and the **shared** macOS PostHog project tagged
+  `platform: "windows"`; client code is
+  [`windows/Services/AppTelemetry.cs`](windows/Services/AppTelemetry.cs), keys
+  injected via `BURROWWIN_SENTRY_DSN` / `BURROWWIN_POSTHOG_API_KEY` — see
+  **[TELEMETRY.md](TELEMETRY.md)**.
 - **Local-only surfaces:**
   - The MCP **HTTP query server** binds `127.0.0.1:9277` (loopback only; **on
     by default**, toggle it off in Settings). It serves your local metrics to

@@ -18,6 +18,10 @@ public sealed class BurrowSettings
 
     public bool McpDestructiveActionsEnabled { get; set; }
 
+    /// Share anonymous crash reports + usage analytics. Opt-out (on by default),
+    /// matching the macOS app; see Services/AppTelemetry.cs.
+    public bool TelemetryEnabled { get; set; } = true;
+
     public static BurrowSettings Normalize(BurrowSettings? settings)
     {
         settings ??= new BurrowSettings();
@@ -28,7 +32,8 @@ public sealed class BurrowSettings
             HttpServerEnabled = settings.HttpServerEnabled,
             HttpServerPort = Math.Clamp(settings.HttpServerPort, 1024, 65535),
             TrayIconEnabled = settings.TrayIconEnabled,
-            McpDestructiveActionsEnabled = settings.McpDestructiveActionsEnabled
+            McpDestructiveActionsEnabled = settings.McpDestructiveActionsEnabled,
+            TelemetryEnabled = settings.TelemetryEnabled
         };
     }
 }

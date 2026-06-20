@@ -1,5 +1,6 @@
 using BurrowWin.Models;
 using BurrowWin.Services;
+using System.Globalization;
 using Xunit;
 
 namespace BurrowWin.Tests;
@@ -20,6 +21,23 @@ public sealed class SystemTelemetryFormatterTests
         Assert.Equal("999 B", SystemTelemetryFormatter.Bytes(999));
         Assert.Equal("1 KB", SystemTelemetryFormatter.Bytes(1024));
         Assert.Equal("1.5 GB", SystemTelemetryFormatter.Bytes(1_610_612_736));
+    }
+
+    [Fact]
+    public void Formatters_UseInvariantCulture()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+
+            Assert.Equal("12.3%", SystemTelemetryFormatter.Percent(12.34));
+            Assert.Equal("1.5 GB", SystemTelemetryFormatter.Bytes(1_610_612_736));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
     }
 
     [Fact]

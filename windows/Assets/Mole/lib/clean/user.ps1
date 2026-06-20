@@ -108,7 +108,7 @@ function Clear-RecycleBin {
             }
             
             # Clear using Clear-RecycleBin cmdlet (Windows 10+)
-            Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+            Microsoft.PowerShell.Management\Clear-RecycleBin -Force -ErrorAction SilentlyContinue
             
             $sizeHuman = Format-ByteSize -Bytes $totalSize
             Write-Success "Recycle Bin $($script:Colors.Green)($sizeHuman)$($script:Colors.NC)"

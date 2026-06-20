@@ -6,7 +6,7 @@ This document explains why BurrowWin sometimes uses native Windows fallback inst
 
 - Status: native Windows telemetry, because Mole Windows status is currently TUI-oriented.
 - Analyze: native directory sizing and treemap, because `mo analyze` is interactive on Windows.
-- Clean: Mole `clean --dry-run` preview is used and parsed; per-row deletion is not exposed by Mole Windows.
+- Clean: the WinUI route is currently a guarded pending stub; no stable GUI cleanup preview/removal flow is claimed until Mole Windows exposes a safe non-interactive contract.
 - Purge: native preview/removal using Mole-compatible project artifact patterns, because Mole Windows purge is an interactive selector.
 - Installers: native old-download installer/archive matcher, because no dedicated Windows installer cleanup JSON command exists yet.
 - Optimize: Mole `optimize --dry-run` for preview, confirmed `mo optimize` for real runs.
