@@ -154,10 +154,11 @@ enum UpdateCheck {
                     return
                 }
                 if isNewer(release.version, than: currentVersion) {
-                    let body = installedViaHomebrew()
-                        ? String(format: NSLocalizedString("Burrow %@ is available (you have %@). Update with `brew upgrade --cask burrow`, or open the release page.", comment: ""), release.version, currentVersion)
+                    let brew = installedViaHomebrew()
+                    let body = brew
+                        ? String(format: NSLocalizedString("Burrow %@ is available (you have %@). Update and relaunch with Homebrew, or open the release page.", comment: ""), release.version, currentVersion)
                         : String(format: NSLocalizedString("Burrow %@ is available (you have %@). Download it from the release page.", comment: ""), release.version, currentVersion)
-                    presentResult(title: NSLocalizedString("Update available", comment: ""), body: body, link: release.url)
+                    presentResult(title: NSLocalizedString("Update available", comment: ""), body: body, link: release.url, brewUpgrade: brew)
                 } else {
                     presentResult(title: NSLocalizedString("You're up to date", comment: ""),
                                   body: String(format: NSLocalizedString("Burrow %@ is the latest release.", comment: ""), currentVersion),
@@ -167,19 +168,56 @@ enum UpdateCheck {
         }.resume()
     }
 
-    private static func presentResult(title: String, body: String, link: URL?) {
+    private static func presentResult(title: String, body: String, link: URL?, brewUpgrade: Bool = false) {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = body
-        if link != nil {
-            alert.addButton(withTitle: NSLocalizedString("Open Release Page", comment: ""))
-            alert.addButton(withTitle: NSLocalizedString("Close", comment: ""))
-        } else {
-            alert.addButton(withTitle: NSLocalizedString("Close", comment: ""))
-        }
+        // Button order defines the response order: Update (default) · Release page · Close.
+        if brewUpgrade { alert.addButton(withTitle: NSLocalizedString("Update with Homebrew", comment: "")) }
+        if link != nil { alert.addButton(withTitle: NSLocalizedString("Open Release Page", comment: "")) }
+        alert.addButton(withTitle: NSLocalizedString("Close", comment: ""))
         NSApp.activate(ignoringOtherApps: true)
-        if alert.runModalQuiet() == .alertFirstButtonReturn, let link {
+        let resp = alert.runModalQuiet()
+        if brewUpgrade {
+            if resp == .alertFirstButtonReturn { homebrewUpgrade() }
+            else if resp == .alertSecondButtonReturn, let link { NSWorkspace.shared.open(link) }
+        } else if resp == .alertFirstButtonReturn, let link {
             NSWorkspace.shared.open(link)
         }
+    }
+
+    /// User-initiated one-click update for Homebrew installs: run
+    /// `brew upgrade --cask burrow` in Terminal, then relaunch. Still entirely
+    /// user-driven — nothing installs without this click. Uses a `.command`
+    /// file (no Automation/AppleScript permission needed): it waits for this
+    /// app to quit so the bundle can be swapped cleanly, upgrades, then reopens
+    /// Burrow. Terminal runs in the user's login shell, so `brew` is on PATH.
+    static func homebrewUpgrade() {
+        let script = """
+        #!/bin/bash
+        echo "Updating Burrow via Homebrew — it'll reopen when this finishes."
+        echo
+        for _ in $(seq 1 60); do pgrep -x Burrow >/dev/null 2>&1 || break; sleep 0.5; done
+        brew upgrade --cask burrow
+        code=$?
+        echo
+        if [ $code -eq 0 ]; then
+          echo "Updated. Relaunching Burrow…"
+          open -a Burrow
+        else
+          echo "Update failed (exit $code). Grab it from \(releasesPageURL.absoluteString)"
+        fi
+        """
+        let path = (NSTemporaryDirectory() as NSString).appendingPathComponent("burrow-update.command")
+        do {
+            try script.write(toFile: path, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        } catch {
+            NSWorkspace.shared.open(releasesPageURL)
+            return
+        }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        // Quit so the .command can replace the bundle and relaunch the new build.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { NSApp.terminate(nil) }
     }
 }

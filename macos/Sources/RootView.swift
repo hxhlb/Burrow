@@ -82,7 +82,10 @@ struct RootView: View {
                 VStack(spacing: 0) {
                     if let release = appUpdate.available {
                         UpdateBanner(release: release,
-                                     onDownload: { NSWorkspace.shared.open(release.url) },
+                                     onDownload: {
+                                         if UpdateCheck.installedViaHomebrew() { UpdateCheck.homebrewUpgrade() }
+                                         else { NSWorkspace.shared.open(release.url) }
+                                     },
                                      onDismiss: { appUpdate.dismiss() })
                             .padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 4)
                             .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
@@ -202,13 +205,16 @@ private struct UpdateBanner: View {
                 Text(String(format: NSLocalizedString("Burrow %@ is available", comment: ""), release.version))
                     .font(Brand.sans(13, .semibold)).foregroundStyle(Brand.textPrimary)
                 Text(UpdateCheck.installedViaHomebrew()
-                     ? NSLocalizedString("Update with `brew upgrade --cask burrow`, or open the release page.", comment: "")
+                     ? NSLocalizedString("One-click update + relaunch via Homebrew.", comment: "")
                      : NSLocalizedString("Download it from the release page.", comment: ""))
                     .font(Brand.mono(10)).foregroundStyle(Brand.textSecondary)
             }
             Spacer()
             Button(action: onDownload) {
-                Text("Download").font(Brand.sans(12, .semibold)).foregroundStyle(.black)
+                Text(UpdateCheck.installedViaHomebrew()
+                     ? NSLocalizedString("Update", comment: "")
+                     : NSLocalizedString("Download", comment: ""))
+                    .font(Brand.sans(12, .semibold)).foregroundStyle(.black)
                     .padding(.horizontal, 14).padding(.vertical, 6)
                     .background(Capsule().fill(.white))
             }.buttonStyle(.plain)
