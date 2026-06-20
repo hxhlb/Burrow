@@ -9,6 +9,11 @@ name: sentry-issues
 # isn't on. This workflow needs only a read-only Sentry auth token and the
 # free plan's API.
 #
+# Each filed issue also embeds the most recent event's stack trace (fetched
+# from the events/latest API) in a collapsed <details> block, so triage rarely
+# needs a trip to the Sentry dashboard. Best-effort: if the trace can't be
+# fetched/parsed the issue is still filed, just without the trace block.
+#
 # Dedup is by a hidden marker line ("sentry-id: <short-id>") in the body of
 # every issue we file. Before filing, we read back the short-ids of all
 # existing `sentry`-labelled issues (open AND closed) and skip any we've
@@ -80,6 +85,28 @@ jobs:
             | grep -oE 'sentry-id: [^ <]+' | awk '{print $2}' | sort -u > "$seen" || true
           echo "Already filed: $(wc -l < "$seen" | tr -d ' ') Sentry issue(s)."
 
+          # jq program that distils a Sentry event into a compact stack trace.
+          # Prefers the crashed/current thread (the right one for App Hang/ANR
+          # events, where the main thread is what stalled), falling back to the
+          # exception's own stacktrace. Frames arrive oldest-first, so reverse
+          # to put the offending frame on top; cap at 30. In-app frames are
+          # marked with "* ". Emits "" when there are no frames to show.
+          read -r -d '' TRACE_JQ <<'JQ' || true
+          def fmtframe:
+            (if (.inApp // false) then "* " else "  " end)
+            + (.function // .symbol // "<unknown>")
+            + (if .filename then " (" + .filename + (if .lineNo then ":" + (.lineNo|tostring) else "" end) + ")"
+               elif .package then " [" + (.package | sub(".*/";"")) + "]"
+               else "" end);
+          ( [ .entries[]? | select(.type=="threads") | .data.values[]?
+              | select((.crashed // false) or (.current // false))
+              | .stacktrace.frames ] | map(select(. != null)) | .[0] ) as $tf
+          | ( [ .entries[]? | select(.type=="exception") | .data.values[]?
+              | .stacktrace.frames ] | map(select(. != null)) | .[0] ) as $ef
+          | ( ($tf // $ef) // [] )
+          | reverse | .[0:30] | map(fmtframe) | join("\n")
+          JQ
+
           filed=0
           for project in $SENTRY_PROJECTS; do
             q=$(jq -rn --arg q "$SENTRY_QUERY" '$q | @uri')
@@ -117,6 +144,19 @@ jobs:
               lastSeen=$(jq -r '.lastSeen // "?"' <<<"$issue")
               permalink=$(jq -r '.permalink // empty' <<<"$issue")
 
+              # Fetch the most recent event so the GitHub issue carries a real
+              # stack trace — saves a manual Sentry dive on every triage. Pure
+              # best-effort: a failed request (event:read missing, message-only
+              # issue, network blip) or an empty jq result just files the issue
+              # without a trace block, exactly as before.
+              issueId=$(jq -r '.id // empty' <<<"$issue")
+              trace=""
+              if [ -n "$issueId" ]; then
+                ev=$(curl -fsS -H "Authorization: Bearer ${SENTRY_AUTH_TOKEN}" \
+                      "${SENTRY_HOST}/api/0/organizations/${SENTRY_ORG}/issues/${issueId}/events/latest/" 2>/dev/null) || ev=""
+                [ -n "$ev" ] && trace=$(jq -r "$TRACE_JQ" <<<"$ev" 2>/dev/null || true)
+              fi
+
               printf -v body '%s\n' \
                 "Auto-filed from Sentry by the \`sentry-issues\` workflow." \
                 "" \
@@ -127,9 +167,26 @@ jobs:
                 "| **Level** | ${level} |" \
                 "| **Events** | ${count} |" \
                 "| **First seen** | ${firstSeen} |" \
-                "| **Last seen** | ${lastSeen} |" \
-                "" \
-                "<sub>sentry-id: ${shortId} — managed marker, do not edit or remove (prevents duplicate filings).</sub>"
+                "| **Last seen** | ${lastSeen} |"
+
+              if [ -n "$trace" ]; then
+                body="${body}
+          <details>
+          <summary>Stack trace (most recent event)</summary>
+
+          \`\`\`
+          ${trace}
+          \`\`\`
+
+          </details>
+          "
+              fi
+
+              # Keep the managed marker LAST: the dedup read greps for
+              # 'sentry-id:' across all sentry-labelled issues.
+              body="${body}
+          <sub>sentry-id: ${shortId} — managed marker, do not edit or remove (prevents duplicate filings).</sub>
+          "
               if gh issue create --repo "$GH_REPO" \
                    --title "[Sentry] ${shortId}: ${title}" \
                    --label sentry \
