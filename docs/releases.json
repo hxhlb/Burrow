@@ -2,10 +2,56 @@
   "_comment": "Source of truth for the site's release history. Newest first. Edit this, then run `python3 scripts/site-release.py` to regenerate the homepage 'New in X' section and releases.html. Icons/colors: run `python3 scripts/site-release.py --list-icons`.",
   "releases": [
     {
+      "version": "0.8.0",
+      "date": "2026-06-20",
+      "tag": "v0.8.0",
+      "tagline": "A top-to-bottom visual redesign, a wave of new tools, a deeper agent surface, and an early Windows preview.",
+      "highlights": [
+        {
+          "icon": "sparkle",
+          "color": "teal",
+          "title": "A warm redesign",
+          "line": "A warm-coffee adaptive palette, film grain, a floating icon rail, borderless cards, and redesigned Overview, History, and menu-bar HUD."
+        },
+        {
+          "icon": "globe",
+          "color": "azure",
+          "title": "Ports & Get Online",
+          "line": "A new Ports view \u2014 live connections, bandwidth, and peers \u2014 plus Get Online, with gateway/MDM checks and captive-portal rescue."
+        },
+        {
+          "icon": "wrench",
+          "color": "coral",
+          "title": "Tune-Up & Homebrew",
+          "line": "A Smart-Care Tune-Up that scans on entry, plus Homebrew Services and Brewfile export/restore."
+        },
+        {
+          "icon": "robot",
+          "color": "violet",
+          "title": "Deeper agent surface",
+          "line": "A token-gated /events SSE stream and burrow_diff, so an MCP agent can watch and compare your machine over time."
+        },
+        {
+          "icon": "monitor",
+          "color": "gold",
+          "title": "Windows preview",
+          "line": "An early native WinUI 3 / .NET 8 Windows app under windows/ \u2014 Status, History, Analyze, Apps, and a tray HUD."
+        }
+      ],
+      "chips": [
+        "Disk tile now forecasts when you'll run out of space (\u201cFull in ~N\u201d)",
+        "Doctor: new SMART-health and backup-awareness checks, with reminders",
+        "Drag-select a History chart to see the top processes for that spike",
+        "Killed several main-thread app-hangs (sort, ICU, process table, app icons)",
+        "Onboarding now auto-detects the mo engine",
+        "Monorepo (macos/ + windows/) with inside-out framework signing for notarization"
+      ]
+    },
+    {
       "version": "0.7.2",
       "date": "2026-06-15",
       "tag": "v0.7.2",
-      "tagline": "A feature pass on the redesign — cleanup, software and the live dashboard get more capable, with opt-in update and privacy surfaces.",
+      "tagline": "A feature pass on the redesign \u2014 cleanup, software and the live dashboard get more capable, with opt-in update and privacy surfaces.",
       "highlights": [
         {
           "icon": "sweep",
@@ -29,7 +75,7 @@
           "icon": "globe",
           "color": "gold",
           "title": "Self-update",
-          "line": "Burrow checks itself for new versions (opt-in, default on) and shows a banner plus a menu-bar dot — it never installs on its own."
+          "line": "Burrow checks itself for new versions (opt-in, default on) and shows a banner plus a menu-bar dot \u2014 it never installs on its own."
         },
         {
           "icon": "monitor",
@@ -41,7 +87,7 @@
       "chips": [
         "Analyze shows live per-folder progress on the first scan",
         "Confirm dialogs & Touch ID no longer reported as app-hangs",
-        "Live App Store / Sparkle update checks stay click-gated — no silent network",
+        "Live App Store / Sparkle update checks stay click-gated \u2014 no silent network",
         "View Log on every result screen (Clean / Optimize / Purge / Installers)",
         "About & Check for Updates now in Settings too"
       ]
@@ -50,13 +96,13 @@
       "version": "0.7.1",
       "date": "2026-06-14",
       "tag": "v0.7.1",
-      "tagline": "A stability pass — every freeze and the crash reported since the 0.7.0 redesign, fixed.",
+      "tagline": "A stability pass \u2014 every freeze and the crash reported since the 0.7.0 redesign, fixed.",
       "highlights": [
         {
           "icon": "gauge",
           "color": "gold",
           "title": "Freezes, fixed",
-          "line": "The History view, slow startup, and typing in Uninstall & Purge no longer lock the app — every app-hang from launch is gone."
+          "line": "The History view, slow startup, and typing in Uninstall & Purge no longer lock the app \u2014 every app-hang from launch is gone."
         },
         {
           "icon": "shield",
@@ -73,7 +119,7 @@
       ],
       "chips": [
         "History view no longer freezes on wide time ranges",
-        "Faster launch — mo discovery moved off the main thread",
+        "Faster launch \u2014 mo discovery moved off the main thread",
         "Fixed a crash opening the menu-bar popover charts",
         "Smooth typing during Uninstall & Purge",
         "Process-row Quit/Force-Kill menu no longer rebuilt every refresh",
@@ -85,13 +131,13 @@
       "version": "0.7.0",
       "date": "2026-06-13",
       "tag": "v0.7.0",
-      "tagline": "The big one — every tool redesigned, a real Clean review pipeline, a new Software tab, and notifications when work finishes.",
+      "tagline": "The big one \u2014 every tool redesigned, a real Clean review pipeline, a new Software tab, and notifications when work finishes.",
       "highlights": [
         {
           "icon": "layout",
           "color": "gold",
           "title": "Every tool redesigned",
-          "line": "Onboarding, Clean, Software, Status, the menu-bar popover, Analyze and Settings — all rebuilt."
+          "line": "Onboarding, Clean, Software, Status, the menu-bar popover, Analyze and Settings \u2014 all rebuilt."
         },
         {
           "icon": "sweep",
@@ -128,11 +174,11 @@
         "One-click relaunch when Full Disk Access is granted",
         "First-run onboarding checks the mo engine + version",
         "Compact, scrollable process table",
-        "Keep Screen On · Clean Screen · global shortcuts",
-        "~230 strings localized in 简体中文 / 繁體中文",
+        "Keep Screen On \u00b7 Clean Screen \u00b7 global shortcuts",
+        "~230 strings localized in \u7b80\u4f53\u4e2d\u6587 / \u7e41\u9ad4\u4e2d\u6587",
         "Truthful Touch ID copy",
         "Dashboard survives a bad metrics sample (skipped + counted)",
-        "History auto-refresh is demand-driven — no idle timer",
+        "History auto-refresh is demand-driven \u2014 no idle timer",
         "Deepened, test-covered mo runner / metrics / actions core"
       ]
     },
@@ -140,75 +186,75 @@
       "version": "0.6.7",
       "date": "2026-06-11",
       "tag": "v0.6.7",
-      "tagline": "The biggest release yet — one Home dashboard, 繁體中文, native sensors, live 1-second charts.",
+      "tagline": "The biggest release yet \u2014 one Home dashboard, \u7e41\u9ad4\u4e2d\u6587, native sensors, live 1-second charts.",
       "highlights": [
         {
           "icon": "home",
           "color": "gold",
           "title": "One Home dashboard",
-          "line": "Status, History and Activity fold into a single live view — vitals, charts and recent jobs in one place."
+          "line": "Status, History and Activity fold into a single live view \u2014 vitals, charts and recent jobs in one place."
         },
         {
           "icon": "globe",
           "color": "lilac",
-          "title": "繁體中文",
-          "line": "Traditional Chinese joins English and 简体 — with an in-app switch, so you're not tied to the system language."
+          "title": "\u7e41\u9ad4\u4e2d\u6587",
+          "line": "Traditional Chinese joins English and \u7b80\u4f53 \u2014 with an in-app switch, so you're not tied to the system language."
         },
         {
           "icon": "thermo",
           "color": "coral",
           "title": "Real fans & temps",
-          "line": "Fan RPM and CPU/GPU die temperatures, read straight from the SMC — the gaps Mole leaves on Apple Silicon, filled."
+          "line": "Fan RPM and CPU/GPU die temperatures, read straight from the SMC \u2014 the gaps Mole leaves on Apple Silicon, filled."
         },
         {
           "icon": "pulse",
           "color": "azure",
           "title": "1-second live charts",
-          "line": "Net and disk sampled every second — bursts actually show up instead of being averaged away."
+          "line": "Net and disk sampled every second \u2014 bursts actually show up instead of being averaged away."
         },
         {
           "icon": "trash",
           "color": "teal",
           "title": "Trash from the treemap",
-          "line": "Spot a forgotten folder in Analyze and send it to the Trash right there — no detour to Finder."
+          "line": "Spot a forgotten folder in Analyze and send it to the Trash right there \u2014 no detour to Finder."
         },
         {
           "icon": "sparkle",
           "color": "violet",
           "title": "Sharper AI Explain",
-          "line": "It now briefs the whole picture — current snapshot, recent trend and your recent cleanups, in your language."
+          "line": "It now briefs the whole picture \u2014 current snapshot, recent trend and your recent cleanups, in your language."
         }
       ],
       "chips": [
-        "opt-out anonymous telemetry — one switch, listed in [TELEMETRY.md](https://github.com/caezium/Burrow/blob/main/TELEMETRY.md)",
-        "loopback API hardened — no CORS grant",
+        "opt-out anonymous telemetry \u2014 one switch, listed in [TELEMETRY.md](https://github.com/caezium/Burrow/blob/main/TELEMETRY.md)",
+        "loopback API hardened \u2014 no CORS grant",
         "AI keys moved to the Keychain",
         "deletes & uninstalls need a second agent opt-in",
         "treemap hover & breadcrumb fixed",
-        "tests 124 → 244"
+        "tests 124 \u2192 244"
       ]
     },
     {
       "version": "0.6.5",
       "date": "2026-06-09",
       "tag": "v0.6.5",
-      "tagline": "A reliability release — the selection flows stop hanging, and the engine integration is now driven by tests.",
+      "tagline": "A reliability release \u2014 the selection flows stop hanging, and the engine integration is now driven by tests.",
       "highlights": [
         {
           "icon": "wrench",
           "color": "teal",
-          "title": "No more \"Scanning…\" hang",
+          "title": "No more \"Scanning\u2026\" hang",
           "line": "Installers and Purge no longer freeze when Mole finds nothing, or on a second scan."
         },
         {
           "icon": "flask",
           "color": "violet",
           "title": "Tested mo integration",
-          "line": "The \"remove exactly what you picked — or nothing\" flow is now a pure state machine, verified in CI."
+          "line": "The \"remove exactly what you picked \u2014 or nothing\" flow is now a pure state machine, verified in CI."
         }
       ],
       "chips": [
-        "tests 90 → 124",
+        "tests 90 \u2192 124",
         "one ANSI cleaner, one typed client, one snapshot store"
       ]
     },
@@ -216,13 +262,13 @@
       "version": "0.6.0",
       "date": "2026-06-08",
       "tag": "v0.6.0",
-      "tagline": "Fix-and-polish — cleanup flows actually complete, and the trackers show real data.",
+      "tagline": "Fix-and-polish \u2014 cleanup flows actually complete, and the trackers show real data.",
       "highlights": [
         {
           "icon": "package",
           "color": "coral",
           "title": "Installer & Uninstall complete",
-          "line": "The confirm-screen timeout and the silent [y/N] hang are gone — both flows now finish."
+          "line": "The confirm-screen timeout and the silent [y/N] hang are gone \u2014 both flows now finish."
         },
         {
           "icon": "gauge",
@@ -233,7 +279,7 @@
         {
           "icon": "list",
           "color": "teal",
-          "title": "Purge → Show all",
+          "title": "Purge \u2192 Show all",
           "line": "Pull in the complete find list and pick from everything, not just the ~50 biggest."
         },
         {
@@ -253,13 +299,13 @@
       "version": "0.5.5",
       "date": "2026-06-08",
       "tag": "v0.5.5",
-      "tagline": "Two new cleanup tools, an AI lens on Status, and agents that can act — safely.",
+      "tagline": "Two new cleanup tools, an AI lens on Status, and agents that can act \u2014 safely.",
       "highlights": [
         {
           "icon": "sweep",
           "color": "violet",
           "title": "Purge",
-          "line": "Find and clear old build artifacts — node_modules, target/, build/ — ticking exactly what goes."
+          "line": "Find and clear old build artifacts \u2014 node_modules, target/, build/ \u2014 ticking exactly what goes."
         },
         {
           "icon": "package",
@@ -271,13 +317,13 @@
           "icon": "sparkle",
           "color": "lilac",
           "title": "Explain (AI), opt-in",
-          "line": "A lens that reads one snapshot and explains it in plain English — local Ollama by default, nothing leaves the Mac."
+          "line": "A lens that reads one snapshot and explains it in plain English \u2014 local Ollama by default, nothing leaves the Mac."
         },
         {
           "icon": "robot",
           "color": "moss",
           "title": "Agents can act over MCP",
-          "line": "burrow_clean, _optimize, _uninstall and friends — every action dry-runs unless you flip the real-cleanups switch."
+          "line": "burrow_clean, _optimize, _uninstall and friends \u2014 every action dry-runs unless you flip the real-cleanups switch."
         }
       ],
       "chips": [
@@ -289,7 +335,7 @@
       "version": "0.5.1",
       "date": "2026-06-08",
       "tag": "v0.5.1",
-      "tagline": "Maintenance — Full Disk Access actually sticks now.",
+      "tagline": "Maintenance \u2014 Full Disk Access actually sticks now.",
       "highlights": [
         {
           "icon": "shield",
@@ -313,7 +359,7 @@
       "version": "0.5.0",
       "date": "2026-06-08",
       "tag": "v0.5.0",
-      "tagline": "Burrow grows up — Touch ID, a live menu-bar HUD, an MCP server, 简体中文, and a one-command install.",
+      "tagline": "Burrow grows up \u2014 Touch ID, a live menu-bar HUD, an MCP server, \u7b80\u4f53\u4e2d\u6587, and a one-command install.",
       "highlights": [
         {
           "icon": "fingerprint",
@@ -325,31 +371,31 @@
           "icon": "monitor",
           "color": "azure",
           "title": "Menu-bar HUD",
-          "line": "Live job status from the menu bar — or run without the icon entirely, in Dock mode."
+          "line": "Live job status from the menu bar \u2014 or run without the icon entirely, in Dock mode."
         },
         {
           "icon": "robot",
           "color": "ginger",
           "title": "MCP server",
-          "line": "Ask Claude Code about your Mac — a read-only stdio server, including burrow_process_usage."
+          "line": "Ask Claude Code about your Mac \u2014 a read-only stdio server, including burrow_process_usage."
         },
         {
           "icon": "globe",
           "color": "lilac",
-          "title": "简体中文",
+          "title": "\u7b80\u4f53\u4e2d\u6587",
           "line": "Simplified Chinese localization."
         },
         {
           "icon": "clock",
           "color": "moss",
           "title": "History",
-          "line": "Long-range charts — five minutes out to ninety days — over a local SQLite store."
+          "line": "Long-range charts \u2014 five minutes out to ninety days \u2014 over a local SQLite store."
         },
         {
           "icon": "package",
           "color": "teal",
           "title": "Homebrew cask",
-          "line": "brew install --cask caezium/tap/burrow — one command, engine included, quarantine cleared."
+          "line": "brew install --cask caezium/tap/burrow \u2014 one command, engine included, quarantine cleared."
         }
       ],
       "chips": [
@@ -362,13 +408,13 @@
       "version": "0.4.0",
       "date": "2026-06-04",
       "tag": "v0.4.0",
-      "tagline": "First public release — five tools, one native window, built on the Mole CLI.",
+      "tagline": "First public release \u2014 five tools, one native window, built on the Mole CLI.",
       "highlights": [
         {
           "icon": "layout",
           "color": "teal",
           "title": "Five tools, one window",
-          "line": "Status, Analyze, Software, Clean and Optimize — a native macOS GUI for the audited mo engine."
+          "line": "Status, Analyze, Software, Clean and Optimize \u2014 a native macOS GUI for the audited mo engine."
         },
         {
           "icon": "chart",
