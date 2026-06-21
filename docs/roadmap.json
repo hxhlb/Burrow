@@ -1,0 +1,73 @@
+{
+  "_comment": "Source of truth for the site roadmap (docs/roadmap.html) and the README '## Roadmap' block. Edit this, then run `python3 scripts/site-release.py`. Columns render top to bottom; empty columns are skipped. Item fields: title (req), type (feat|fix|infra), issue (GitHub #, links to vote), note, version (for shipped — links to the changelog). Voting happens on GitHub issues (upvote) — keep this curated and honest; it's a guide, not a promise.",
+  "updated": "2026-06-20",
+  "columns": [
+    {
+      "key": "building",
+      "title": "Building",
+      "blurb": "In progress now.",
+      "items": [
+        {
+          "title": "One-click “Update with Homebrew”",
+          "type": "feat",
+          "note": "An Update button in the update prompt that runs `brew upgrade` and relaunches — the interim before signed auto-update."
+        }
+      ]
+    },
+    {
+      "key": "planned",
+      "title": "Planned",
+      "blurb": "Decided — not started yet.",
+      "items": [
+        {
+          "title": "Signed & notarized macOS builds",
+          "type": "infra",
+          "note": "A Developer ID signature so Gatekeeper trusts Burrow without the right-click → Open dance."
+        },
+        {
+          "title": "In-app auto-update",
+          "type": "feat",
+          "note": "Once builds are signed, silent background update checks with a one-click install (Sparkle)."
+        },
+        {
+          "title": "Bundle a pinned `mo` engine in every release",
+          "type": "infra",
+          "issue": 54,
+          "note": "Engine included in the download, so there's no separate install step on any install path."
+        },
+        {
+          "title": "Windows preview → first stable",
+          "type": "feat",
+          "issue": 93,
+          "note": "Data-loss and supply-chain hardening, parity, and test coverage before it loses the “preview” label."
+        }
+      ]
+    },
+    {
+      "key": "considering",
+      "title": "Considering",
+      "blurb": "Weighing it — upvote to push it up.",
+      "items": [
+        {
+          "title": "Persistent one-tap “run all” Tune-Up",
+          "type": "feat",
+          "issue": 77,
+          "note": "A saved Smart-Care routine you trigger in one tap from the dashboard."
+        }
+      ]
+    },
+    {
+      "key": "shipped",
+      "title": "Recently shipped",
+      "blurb": "Landed in the latest releases.",
+      "items": [
+        { "title": "A warm visual redesign", "version": "0.8.0" },
+        { "title": "Ports & Get Online", "version": "0.8.0" },
+        { "title": "Smart-Care Tune-Up", "version": "0.8.0" },
+        { "title": "Homebrew Services & Brewfile", "version": "0.8.0" },
+        { "title": "Deeper MCP agent surface (`/events`, `burrow_diff`)", "version": "0.8.0" },
+        { "title": "Windows preview", "version": "0.8.0" }
+      ]
+    }
+  ]
+}
