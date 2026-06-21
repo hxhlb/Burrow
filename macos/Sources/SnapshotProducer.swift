@@ -153,6 +153,10 @@ final class SnapshotProducer {
         /// Background executor for the blocking mo fetch. Production hops to
         /// a serial utility queue; tests pass `{ $0() }` for synchrony.
         var work: (@escaping () -> Void) -> Void
+        /// Optional NDJSON status stream (`mo status --watch`, V1.44+). Returns
+        /// nil when streaming is disabled / unsupported / mo unresolved → the
+        /// producer polls. Tests omit it, so the poll path is unchanged.
+        var statusWatch: (() -> AsyncStream<ProcessEvent>?)? = nil
 
         static func live(db: DB) -> Deps {
             let queue = DispatchQueue(label: "dev.caezium.burrow.producer", qos: .utility)
@@ -161,7 +165,13 @@ final class SnapshotProducer {
                         clock: DispatchClock(),
                         sink: DBSnapshotSink(db: db),
                         snapshotInterval: { TimeInterval(Store.sampleIntervalSeconds) },
-                        work: { queue.async(execute: $0) })
+                        work: { queue.async(execute: $0) },
+                        statusWatch: {
+                            // The gate spawns `mo --version`, so this runs off-main
+                            // (the producer calls the factory inside `work`).
+                            (Store.useStatusWatch && MoleCLI.supportsWatch())
+                                ? MoEngine.shared.statusWatch() : nil
+                        })
         }
     }
 
@@ -173,8 +183,14 @@ final class SnapshotProducer {
     private let lock = NSLock()
     private var running = false
     private var foreground = false
+    private var streaming = false            // `mo status --watch` active (guarded by lock)
     private var snapTimer: ClockCancellable?
     private var liveTimer: ClockCancellable?
+    private var streamTask: Task<Void, Never>?
+    /// Last time a streamed snapshot was persisted — throttles DB writes to the
+    /// configured interval so a fast `--watch` stream doesn't write
+    /// 1 s-resolution rows into the long-range history (guarded by lock).
+    private var lastStreamPersist = Date.distantPast
 
     private let foregroundInterval: TimeInterval = 5
     private let liveInterval: TimeInterval = 1
@@ -199,18 +215,61 @@ final class SnapshotProducer {
         let now = deps.clock.now
         if let n = deps.hardware.netBytes() { _ = liveNet.mbps(n.rx, n.tx, at: now) }
         if let d = deps.hardware.diskBytes() { _ = liveDisk.mbps(d.read, d.write, at: now) }
-        // Immediate sample so the popup has data right away.
-        deps.work { self.sampleNow() }
-        armSnapshotTimer()
         armLiveTimer()
+        // Off-main: seed one snapshot immediately, then either start the
+        // `mo status --watch` stream or arm the poll timer. The gate spawns
+        // `mo --version`, so the decision must run off the main thread.
+        deps.work { self.beginSnapshots() }
+    }
+
+    /// Seed one snapshot, then choose snapshot delivery: stream when
+    /// `deps.statusWatch` vends one (V1.44+, opt-in), else poll. Runs on
+    /// `deps.work` (off-main).
+    private func beginSnapshots() {
+        sampleNow()
+        if let factory = deps.statusWatch, let stream = factory() {
+            startStreaming(stream)
+        } else {
+            armSnapshotTimer()
+        }
+    }
+
+    /// Consume `mo status --watch` NDJSON: publish every line, persist throttled
+    /// to the configured interval. On stream end (mo exited / errored) fall back
+    /// to polling, so a dropped stream never leaves the dashboard frozen.
+    private func startStreaming(_ stream: AsyncStream<ProcessEvent>) {
+        lock.lock()
+        guard running else { lock.unlock(); return }
+        streaming = true
+        lock.unlock()
+        streamTask = Task { [weak self] in
+            for await event in stream {
+                guard let self else { return }
+                guard case .line(let json) = event else { continue }
+                let now = self.deps.clock.now
+                self.lock.lock()
+                let due = now.timeIntervalSince(self.lastStreamPersist) >= self.deps.snapshotInterval() - 0.5
+                if due { self.lastStreamPersist = now }
+                self.lock.unlock()
+                self.ingest(raw: json, persist: due)
+            }
+            guard let self else { return }
+            self.lock.lock()
+            self.streaming = false
+            let resume = self.running
+            self.lock.unlock()
+            if resume { self.armSnapshotTimer() }
+        }
     }
 
     func stop() {
         lock.lock()
         running = false
+        streaming = false
         snapTimer?.cancel(); snapTimer = nil
         liveTimer?.cancel(); liveTimer = nil
         lock.unlock()
+        streamTask?.cancel(); streamTask = nil   // cancellation terminates the mo child
     }
 
     /// Switch between background and live (foreground) cadence. Turning it
@@ -221,10 +280,12 @@ final class SnapshotProducer {
         guard foreground != on else { lock.unlock(); return }
         foreground = on
         let isRunning = running
+        let isStreaming = streaming
         lock.unlock()
         guard isRunning else { return }
-        if on { deps.work { self.sampleNow() } }
-        armSnapshotTimer()
+        // While streaming, the watch supplies snapshots — no poll to re-pace.
+        if on && !isStreaming { deps.work { self.sampleNow() } }
+        armSnapshotTimer()   // no-op while streaming (guarded)
     }
 
     // MARK: Cadence
@@ -232,7 +293,7 @@ final class SnapshotProducer {
     private func armSnapshotTimer() {
         lock.lock()
         defer { lock.unlock() }
-        guard running else { return }
+        guard running, !streaming else { return }   // the watch stream owns snapshots
         snapTimer?.cancel()
         let slow = deps.snapshotInterval()
         let interval = foreground ? min(foregroundInterval, slow) : slow
@@ -283,7 +344,13 @@ final class SnapshotProducer {
             NSLog("Burrow.SnapshotProducer: mo status failed: \(error.localizedDescription)")
             return
         }
+        ingest(raw: raw, persist: true)
+    }
 
+    /// Patch holes from native counters → parse-validate (a malformed snapshot
+    /// never pollutes the DB) → optionally persist → publish. Shared by the poll
+    /// (`persist: true` every tick) and the `--watch` stream (persist throttled).
+    private func ingest(raw: String, persist: Bool) {
         let now = deps.clock.now
         let fans = deps.hardware.fans()
         let temps = deps.hardware.temps()
@@ -324,14 +391,16 @@ final class SnapshotProducer {
             return
         }
 
-        // Mole's `collected_at` (not Date()): if the tick lags, the chart
-        // x-axis stays accurate to the sample window.
-        let ts = Int(snapshot.collectedAt.timeIntervalSince1970)
-        do {
-            try deps.sink.persist(ts: ts, json: json)
-        } catch {
-            NSLog("Burrow.SnapshotProducer: persist failed: \(error.localizedDescription)")
-            return
+        if persist {
+            // Mole's `collected_at` (not Date()): if the tick lags, the chart
+            // x-axis stays accurate to the sample window.
+            let ts = Int(snapshot.collectedAt.timeIntervalSince1970)
+            do {
+                try deps.sink.persist(ts: ts, json: json)
+            } catch {
+                NSLog("Burrow.SnapshotProducer: persist failed: \(error.localizedDescription)")
+                return
+            }
         }
 
         let at = deps.clock.now

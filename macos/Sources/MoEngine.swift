@@ -192,4 +192,19 @@ final class MoEngine {
     func interactive() -> PTYPort {
         makePTY()
     }
+
+    // MARK: Status stream (mo status --watch, V1.44+)
+
+    /// Stream `mo status --watch` as process events — each `.line` is one
+    /// NDJSON status snapshot; `.exited` ends the stream (the caller falls back
+    /// to polling). Runs indefinitely (no timeout); cancelling the consuming
+    /// task terminates the child via the stream's onTermination. Returns nil if
+    /// `mo` can't be resolved. Reuses the streaming port that drives
+    /// clean/optimize, so there's no new spawn plumbing.
+    func statusWatch() -> AsyncStream<ProcessEvent>? {
+        guard let path = locator.locate() else { return nil }
+        let spec = ProcessSpec(executable: path, arguments: ["status", "--watch"],
+                               stdin: nil, elevated: false, timeout: nil)
+        return streamPort.events(spec)
+    }
 }

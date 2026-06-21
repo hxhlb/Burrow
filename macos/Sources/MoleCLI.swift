@@ -155,6 +155,31 @@ enum MoleCLI {
     /// GUI app with no controlling terminal (#35).
     static let minimumAnalyzeJSONVersion = "1.29.0"
 
+    /// Oldest Mole whose `status --watch` streams NDJSON (V1.44.0, "Signal").
+    /// Below this Burrow polls `mo status --json` instead.
+    static let minimumWatchVersion = "1.44.0"
+
+    /// Whether the installed `mo` supports `status --watch`. Spawns
+    /// `mo --version` — call OFF the main thread.
+    static func supportsWatch() -> Bool {
+        guard let v = version() else { return false }
+        return versionAtLeast(v, minimumWatchVersion)
+    }
+
+    /// True if `version` ≥ `minimum`, compared numerically component-by-
+    /// component (missing components count as 0). Pure → unit-tested.
+    static func versionAtLeast(_ version: String, _ minimum: String) -> Bool {
+        func parts(_ s: String) -> [Int] {
+            s.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 }
+        }
+        let v = parts(version), m = parts(minimum)
+        for i in 0..<max(v.count, m.count) {
+            let a = i < v.count ? v[i] : 0, b = i < m.count ? m[i] : 0
+            if a != b { return a > b }
+        }
+        return true
+    }
+
     /// Result of a subprocess invocation. `exitCode == 0` is the success
     /// convention; callers that care about diagnostics should look at
     /// `stderr` when it's non-zero, and `timedOut` distinguishes "the

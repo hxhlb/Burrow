@@ -566,6 +566,14 @@ enum Store {
         set { write(newValue, "auto_check_for_updates") }
     }
 
+    /// Stream live status via `mo status --watch` (V1.44+) instead of polling
+    /// `mo status --json`. Experimental, default off — falls back to polling
+    /// when mo is too old or the stream drops.
+    static var useStatusWatch: Bool {
+        get { d.object(forKey: "use_status_watch") as? Bool ?? false }
+        set { write(newValue, "use_status_watch") }
+    }
+
     /// When the last background self-update check ran — throttles the
     /// periodic check to ~daily.
     static var lastUpdateCheckAt: Date? {
