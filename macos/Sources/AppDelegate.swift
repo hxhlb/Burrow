@@ -148,10 +148,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         maintenance.start()
 
         // Completion notices + opt-in smart reminders. The delegate must
-        // be set before any notification is delivered or clicked;
-        // authorization is requested lazily by the first actual post
-        // (BurrowNotifier), never here at launch. (Main-actor hop: the
-        // notifier is @MainActor, this delegate callback isn't.)
+        // be set before any notification is delivered or clicked.
+        // startReminders() also requests notification permission up front
+        // (when a notifying feature is on) so the grant is settled at launch,
+        // not mid-notification. (Main-actor hop: the notifier is @MainActor,
+        // this delegate callback isn't.)
         Task { @MainActor in
             UNUserNotificationCenter.current().delegate = BurrowNotifier.shared
             BurrowNotifier.shared.startReminders()
@@ -279,6 +280,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let view = OnboardingView(onFinish: { [weak self] in
             Store.onboardingCompleted = true
             Telemetry.capture("onboarding_completed")
+            // Settle notification permission now the user has finished setup —
+            // up front, before any completion notice or reminder needs it.
+            // (Hop to the main actor: the notifier is @MainActor, this
+            // SwiftUI callback isn't isolated.)
+            Task { @MainActor in BurrowNotifier.shared.requestAuthorizationForEnabledFeatures() }
             self?.onboardingWC?.close()
             self?.onboardingWC = nil
             self?.openMainWindow(initial: .home)

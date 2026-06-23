@@ -18,9 +18,11 @@
 //      per week (reviewers pan chatty cleaners — throttling is the
 //      feature), and never while the app is frontmost.
 //
-//  UNUserNotificationCenter authorization is requested lazily by the
-//  first actual post — launching Burrow never prompts. The whole class
-//  is inert under XCTest (TEST_HOST shell).
+//  UNUserNotificationCenter authorization is requested UP FRONT when a
+//  notifying feature is enabled — at launch (startReminders) and when a
+//  notifying operation starts — so the grant is settled before the first
+//  notice fires, instead of ambushing the user mid-notification. The post
+//  path still requests lazily as a fallback. Inert under XCTest (TEST_HOST).
 //
 
 import AppKit
@@ -185,6 +187,11 @@ final class BurrowNotifier: NSObject {
     /// today, not in an hour.
     func startReminders() {
         guard !inert, reminderTimer == nil else { return }
+        // Ask for notification permission up front — at launch, once onboarding
+        // is done (first run asks at the end of onboarding instead) — rather
+        // than lazily when the first notice tries to fire (which ambushed the
+        // user mid-clean, or when a reminder triggered).
+        if Store.onboardingCompleted { requestAuthorizationForEnabledFeatures() }
         let timer = Timer(timeInterval: 3_600, repeats: true) { _ in
             Task { @MainActor in
                 BurrowNotifier.shared.checkReminders()
@@ -344,12 +351,23 @@ final class BurrowNotifier: NSObject {
         post(content, id: id)
     }
 
-    /// Ask for notification permission up front — called when a notifying
-    /// operation STARTS, so the grant is settled before the run finishes
-    /// (requesting only at completion races a closed window). Logged so a
-    /// denial, or an unsigned-build registration failure, is visible in
+    /// Proactively settle notification permission — at launch and at the end of
+    /// onboarding — but only when a feature that posts notifications is actually
+    /// on, so a user who turned them all off is never prompted. No-op once the
+    /// permission is already decided.
+    func requestAuthorizationForEnabledFeatures() {
+        guard Store.notifyOnCompletion || Store.watchStartupItems
+            || Store.smartRemindersEnabled || Store.thresholdAlertsEnabled else { return }
+        requestAuthorizationIfNeeded()
+    }
+
+    /// Request notification permission if it's still undetermined — called up
+    /// front: at launch when a notifying feature is on, and when a notifying
+    /// operation STARTS, so the grant is settled before the first notice fires
+    /// rather than mid-notification. A no-op once the user has answered. Logged
+    /// so a denial, or an unsigned-build registration failure, is visible in
     /// Console (`log stream --predicate 'eventMessage CONTAINS "Burrow.notify"'`).
-    func prepareAuthorization() {
+    func requestAuthorizationIfNeeded() {
         guard !inert else { return }
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
